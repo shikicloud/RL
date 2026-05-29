@@ -60,6 +60,10 @@ env:
   math:
     num_workers: 16
     math_verify_impl: dapo_math_verify
+logger:
+  wandb_enabled: true
+  wandb:
+    name: "grpo-qwen3-8b-trtllm-nemorl-${now:%Y%m%d-%H%M%S}"
 cluster:
   gpus_per_node: 4
   num_nodes: 2

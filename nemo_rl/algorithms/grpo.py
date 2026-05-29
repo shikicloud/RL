@@ -2195,10 +2195,10 @@ def grpo_train(
                 )
 
             # Plot ISL/OSL/ISL+OSL histograms to wandb
-            if (
-                master_config["policy"]["generation"]
-                .get("vllm_cfg", {})
-                .get("async_engine", False)
+            if master_config["policy"]["generation"].get("vllm_cfg", {}).get(
+                "async_engine", False
+            ) or master_config["policy"]["generation"].get("trtllm_cfg", {}).get(
+                "async_engine", False
             ):
                 for metric_name in metrics.keys():
                     if metric_name.startswith("histogram/"):
@@ -3249,10 +3249,10 @@ def async_grpo_train(
                 )
 
             # Plot ISL/OSL/ISL+OSL histograms to wandb
-            if (
-                master_config["policy"]["generation"]
-                .get("vllm_cfg", {})
-                .get("async_engine", False)
+            if master_config["policy"]["generation"].get("vllm_cfg", {}).get(
+                "async_engine", False
+            ) or master_config["policy"]["generation"].get("trtllm_cfg", {}).get(
+                "async_engine", False
             ):
                 for metric_name in metrics.keys():
                     if metric_name.startswith("histogram/"):

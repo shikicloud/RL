@@ -300,6 +300,7 @@ jobs:
       build-args: |
         MAX_JOBS=4
         NEMO_RL_COMMIT=${{ needs.pre-flight.outputs.test_sha }}
+        SKIP_TRTLLM_BUILD=1
 
   cicd-doc-tests:
     strategy:

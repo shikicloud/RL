@@ -12,9 +12,10 @@
 #   Local NeMo RL source override:
 #     docker buildx build --build-context nemo-rl=. -f docker/Dockerfile --tag <registry>/nemo-rl:latest --push .
 #
-# Optional build args to skip vLLM or SGLang dependencies:
+# Optional build args to skip vLLM, SGLang, or TensorRT-LLM dependencies:
 #   --build-arg SKIP_VLLM_BUILD=1    # Skip vLLM dependencies
 #   --build-arg SKIP_SGLANG_BUILD=1  # Skip SGLang dependencies
+#   --build-arg SKIP_TRTLLM_BUILD=1  # Skip TensorRT-LLM (defaults to skip in CI)
 
 ARG BASE_IMAGE=nvcr.io/nvidia/cuda-dl-base:26.03-cuda13.2-devel-ubuntu24.04
 FROM scratch AS nemo-rl
@@ -41,6 +42,11 @@ apt-get install -y --no-install-recommends \
     wget \
     less \
     vim \
+    python3-dev \
+    libopenmpi-dev \
+    libzmq3-dev \
+    pkg-config \
+    ninja-build \
 
 # Nsight
 apt install -y --no-install-recommends gnupg
@@ -70,7 +76,7 @@ RUN GITHUB_ARTIFACTORY=github.com \
 
 # Install uv and python
 ARG UV_VERSION=0.11.6
-ARG PYTHON_VERSION=3.12.3
+ARG PYTHON_VERSION=3.13
 ENV PATH="/root/.local/bin:$PATH"
 RUN curl -LsSf https://astral.sh/uv/${UV_VERSION}/install.sh | sh && \
     uv python install ${PYTHON_VERSION}
@@ -102,9 +108,17 @@ ARG BUILD_CUSTOM_VLLM_PRECOMPILED_WHEEL_LOCATION
 ARG BUILD_CUSTOM_FLASHINFER
 ARG BUILD_CUSTOM_FLASHINFER_URL
 ARG BUILD_CUSTOM_FLASHINFER_REF
-# Skip building vLLM or SGLang dependencies (set to any non-empty value to skip)
+# Skip building vLLM, SGLang, or TensorRT-LLM dependencies (set to any non-empty value to skip)
 ARG SKIP_VLLM_BUILD
 ARG SKIP_SGLANG_BUILD
+# Skip building TensorRT-LLM (defaults to skip in CI). Set to empty to enable.
+ARG SKIP_TRTLLM_BUILD
+# TRT-LLM source: must be built from source for cp313/cu13/aarch64 (no PyPI wheel).
+ARG TRTLLM_GIT_URL=https://github.com/NVIDIA/TensorRT-LLM.git
+ARG TRTLLM_GIT_REF=v1.3.0rc15
+# modelopt source: must be built from source for cp313 (PyPI only has 0.43+ which conflicts with TRT-LLM's setuptools pin).
+ARG MODELOPT_GIT_URL=https://github.com/NVIDIA/TensorRT-Model-Optimizer.git
+ARG MODELOPT_GIT_REF=0.37.0
 
 ENV UV_PROJECT_ENVIRONMENT=/opt/nemo_rl_venv
 ENV UV_LINK_MODE=copy
@@ -153,10 +167,111 @@ uv sync --link-mode symlink --locked --extra automodel --no-install-project
 uv sync --link-mode symlink --locked --extra modelopt --no-install-project
 uv sync --link-mode symlink --locked --all-groups --no-install-project
 
+# TensorRT-LLM: no cp313/cu13/aarch64 wheel exists on PyPI, must build from source.
+# Skipped by default in CI (SKIP_TRTLLM_BUILD=1). Unset SKIP_TRTLLM_BUILD to enable.
+if [[ -z "${SKIP_TRTLLM_BUILD:-}" ]]; then
+    # 1) Sync trtllm runtime deps (mpi4py, cutlass-dsl) into the venv first.
+    uv sync --link-mode symlink --locked --extra trtllm --no-install-project
+
+    # 2) Build modelopt 0.37 from source. PyPI ships modelopt 0.43+ for cp313, but
+    #    0.43+ requires setuptools>=80 which conflicts with TRT-LLM's `setuptools<80`
+    #    pin. v0.37 doesn't have that conflict — build a cp313 wheel against our venv.
+    git clone --depth=1 --branch "${MODELOPT_GIT_REF}" "${MODELOPT_GIT_URL}" /tmp/modelopt
+    /opt/nemo_rl_venv/bin/python3 -m pip wheel --no-deps -w /tmp/modelopt-wheel /tmp/modelopt
+    /opt/nemo_rl_venv/bin/python3 -m pip install --no-deps --force-reinstall /tmp/modelopt-wheel/*.whl
+    rm -rf /tmp/modelopt /tmp/modelopt-wheel
+
+    # 3) Clone TRT-LLM and apply cp313-required patches before building:
+    #    (a) `nvidia-modelopt[torch]~=0.37.0` → `>=0.37.0` — our 0.37 install above satisfies it
+    #    (b) `setuptools<80` → unpin — modelopt 0.37 doesn't need <80, but the pin breaks resolver
+    #    (c) CUTLASS CMakeLists `setup_library.py develop --user` → bash wrapper that
+    #        first `cp setup_library.py setup.py` (modern setuptools' develop shells out
+    #        to `pip install -e .` which needs setup.py to exist) and drops `--user`
+    #        (invalid inside a venv).
+    git clone --depth=1 --branch "${TRTLLM_GIT_REF}" "${TRTLLM_GIT_URL}" /tmp/TensorRT-LLM
+    pushd /tmp/TensorRT-LLM
+    git submodule update --init --recursive --depth=1
+    sed -i 's|nvidia-modelopt\[torch\]~=0\.37\.0|nvidia-modelopt[torch]>=0.37.0|' requirements.txt
+    sed -i 's|^setuptools<80$|setuptools|' requirements.txt
+    sed -i 's|COMMAND \${Python3_EXECUTABLE} setup_library.py develop --user|COMMAND bash -c "cp -f setup_library.py setup.py \&\& \${Python3_EXECUTABLE} setup_library.py develop"|' \
+        cpp/tensorrt_llm/kernels/cutlass_kernels/CMakeLists.txt
+
+    # 4) Build the wheel WITHOUT --install (which would do editable install), then
+    #    pip install the wheel non-editable. This way the venv has frozen source — no
+    #    drift if /tmp/TensorRT-LLM is removed or its source changes.
+    . /opt/nemo_rl_venv/bin/activate
+    python3 scripts/build_wheel.py \
+        -a "100-real" \
+        -G Ninja \
+        --clean \
+        --use_ccache \
+        --nvrtc_dynamic_linking \
+        -D "ENABLE_UCX=OFF"
+    pip install --no-deps --force-reinstall build/tensorrt_llm-*.whl
+    deactivate
+    popd
+    rm -rf /tmp/TensorRT-LLM   # safe — wheel is now copied into venv site-packages
+
+    # 5) CUDA lib symlinks. PyPI nvidia-cu13 wheels ship libnvJitLink/libcublas/
+    #    libcublasLt that lack symbols required by TE/trtllm at runtime. System
+    #    /usr/local/cuda-13.2/ has the complete versions.
+    for spec in \
+        "libnvJitLink.so.13.2.51:libnvJitLink.so.13" \
+        "libcublas.so.13.3.0.5:libcublas.so.13" \
+        "libcublasLt.so.13.3.0.5:libcublasLt.so.13"; do
+        SYS_NAME="${spec%%:*}"
+        SHORT_NAME="${spec##*:}"
+        SYS=/usr/local/cuda-13.2/targets/sbsa-linux/lib/${SYS_NAME}
+        VENV_F=/opt/nemo_rl_venv/lib/python3.13/site-packages/nvidia/cu13/lib/${SHORT_NAME}
+        if [ -f "$SYS" ] && [ -e "$VENV_F" ]; then
+            ln -sf "$SYS" "$VENV_F"
+        fi
+    done
+
+    # 6) trtllm_py_wrapper.sh: Ray spawns trtllm actors as plain python subprocesses,
+    #    but v13's OpenMPI 4.1.9a1 can't bootstrap singleton MPI (opal_init fails).
+    #    Wrap each actor with `mpirun -n 1` so MPI initializes as a 1-rank world.
+    #    Must clear outer PMIX env (from srun --mpi=pmix) so the inner mpirun isn't
+    #    refused as "recursive". orchestrator_type="ray" handles cross-rank comms.
+    cat > /opt/nemo-rl/trtllm_py_wrapper.sh <<'WRAPPER_EOF'
+#!/bin/bash
+for v in $(env | grep -oE '^(OMPI|PMI|PMIX|MV2)_[A-Za-z0-9_]+'); do
+    case "$v" in
+        OMPI_ALLOW_RUN_AS_ROOT|OMPI_ALLOW_RUN_AS_ROOT_CONFIRM) continue ;;
+        *) unset "$v" ;;
+    esac
+done
+exec /usr/local/mpi/bin/mpirun -n 1 --allow-run-as-root /opt/nemo_rl_venv/bin/python3 "$@"
+WRAPPER_EOF
+    chmod +x /opt/nemo-rl/trtllm_py_wrapper.sh
+
+    # 7) Per-actor venv symlinks. nemo-rl creates per-actor venvs at runtime by running
+    #    `uv run --locked --extra mcore` — which would re-trigger deep_ep compilation
+    #    and hit the CCCL include issue. Pre-create symlinks so the `_env_builder`'s
+    #    `python_path.exists()` check short-circuits.
+    mkdir -p /opt/ray_venvs
+    for actor in \
+        nemo_rl.models.policy.workers.megatron_policy_worker.MegatronPolicyWorker \
+        nemo_rl.models.policy.workers.dtensor_policy_worker.DTensorPolicyWorker \
+        nemo_rl.models.policy.workers.dtensor_policy_worker_v2.DTensorPolicyWorkerV2 \
+    ; do
+        ln -sfn /opt/nemo_rl_venv /opt/ray_venvs/${actor}
+    done
+fi
+
 # Remove the aiohttp in this uv cache dir to fully address CVE GHSA-mqqc-3gqh-h2x8
 # The ray install will include the older aiohttp version in its cache
 find /root/.cache/uv -type d -path "*ray/_private/runtime_env/agent/thirdparty_files/aiohttp*" -exec rm -rf {} +
 EOF
+
+# Point Ray's TRT-LLM actor launcher at the mpirun wrapper above. Only takes effect
+# at runtime; if SKIP_TRTLLM_BUILD was set the file won't exist and Ray will fail
+# fast if it tries to use the wrapper (intended — fail-loud is better than silently
+# spawning actors that crash on `import tensorrt_llm`).
+ENV NEMO_RL_PY_EXECUTABLES_TRTLLM=/opt/nemo-rl/trtllm_py_wrapper.sh
+# OpenMPI flags for running as root inside enroot/docker containers.
+ENV OMPI_ALLOW_RUN_AS_ROOT=1
+ENV OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1
 
 ENV PATH="/opt/nemo_rl_venv/bin:$PATH"
 ENV NEMO_RL_VENV_DIR=/opt/ray_venvs
@@ -166,8 +281,8 @@ ENV NEMO_RL_VENV_DIR=/opt/ray_venvs
 # version mismatch crash (e.g. system 9.10.1 vs pip 9.19.0). CUDNN_HOME makes TE's Python
 # code find the pip version first, and LD_LIBRARY_PATH makes the dynamic linker resolve
 # cuDNN sub-libraries from pip when loading libtransformer_engine.so.
-ENV CUDNN_HOME=/opt/nemo_rl_venv/lib/python3.12/site-packages/nvidia/cudnn
-ENV LD_LIBRARY_PATH="/opt/nemo_rl_venv/lib/python3.12/site-packages/nvidia/cudnn/lib:${LD_LIBRARY_PATH}"
+ENV CUDNN_HOME=/opt/nemo_rl_venv/lib/python3.13/site-packages/nvidia/cudnn
+ENV LD_LIBRARY_PATH="/opt/nemo_rl_venv/lib/python3.13/site-packages/nvidia/cudnn/lib:${LD_LIBRARY_PATH}"
 # Verify with: python -c "import transformer_engine.pytorch as te; print(te.get_cudnn_version())"
 
 WORKDIR /opt/nemo-rl
