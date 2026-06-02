@@ -146,6 +146,13 @@ sglang = [
   "sglang==0.5.11",
   "sglang-kernel==0.4.2", # Direct dep for explicit version control
 ]
+# TRT-LLM is built from source in docker/Dockerfile (the wheel is not on PyPI for
+# cp313/cu13/aarch64). This extra only declares runtime python deps that the
+# from-source build needs at import time.
+trtllm = [
+  "mpi4py",
+  "nvidia-cutlass-dsl-libs-base==4.5.0",
+]
 mcore = [
   # also need cudnn (https://developer.nvidia.com/cudnn-downloads?target_os=Linux&target_arch=x86_64&Distribution=Ubuntu&target_version=20.04&target_type=deb_network)
   # wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2004/x86_64/cuda-keyring_1.1-1_all.deb

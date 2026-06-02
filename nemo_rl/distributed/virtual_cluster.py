@@ -43,6 +43,13 @@ git_root = os.path.abspath(os.path.join(dir_path, "../.."))
 class PY_EXECUTABLES:
     SYSTEM = sys.executable
 
+    # Interpreter for TRT-LLM actors. Each TRT-LLM Ray actor's MPI world has
+    # to bootstrap via `mpirun -n 1` rather than singleton init (the base
+    # image's OpenMPI 4.x can't `opal_init` outside a launcher). Override
+    # NEMO_RL_PY_EXECUTABLES_TRTLLM to a shim script that wraps the venv
+    # python with `mpirun -n 1`; falls back to sys.executable when unset.
+    TRTLLM = os.environ.get("NEMO_RL_PY_EXECUTABLES_TRTLLM", sys.executable)
+
     # Use NeMo-RL direct dependencies.
     BASE = f"uv run --locked --directory {git_root}"
 

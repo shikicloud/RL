@@ -71,6 +71,7 @@ from nemo_rl.experience.rollouts import (
 )
 from nemo_rl.models.generation.interfaces import GenerationInterface
 from nemo_rl.models.generation.sglang import SGLangConfig, SGLangGeneration
+from nemo_rl.models.generation.trtllm import TrtllmConfig, TrtllmGeneration
 from nemo_rl.models.generation.vllm import VllmConfig, VllmGeneration
 from nemo_rl.models.policy import PolicyConfig
 from nemo_rl.models.policy.interfaces import ColocatablePolicyInterface
@@ -617,6 +618,13 @@ def setup(
         pg.finish_generation()
         return pg, time.perf_counter() - t0
 
+    def init_trtllm():
+        """Initialize TRT-LLM generation workers."""
+        t0 = time.perf_counter()
+        pg = TrtllmGeneration(cluster=inference_cluster, config=generation_config)
+        pg.finish_generation()
+        return pg, time.perf_counter() - t0
+
     def initialize_generation_with_policy(
         init_generation_fn,
         generation_name: str,
@@ -749,6 +757,22 @@ def setup(
 
         print(
             f"  ✓ Using SGLang backend for generation with {policy_config['model_name']}",
+            flush=True,
+        )
+
+    elif backend == "trtllm":
+        generation_config = cast(TrtllmConfig, generation_config)
+
+        policy_generation, policy = initialize_generation_with_policy(
+            init_generation_fn=init_trtllm,
+            generation_name="TRT-LLM",
+            init_time_key="trtllm_init_time_s",
+            colocated_inference=colocated_inference,
+            worker_init_timing_metrics=worker_init_timing_metrics,
+        )
+
+        print(
+            f"  ✓ Using TRT-LLM backend for generation with {policy_config['model_name']}",
             flush=True,
         )
 
@@ -1077,18 +1101,22 @@ def add_grpo_token_loss_masks_and_generation_logprobs(
 def _should_use_async_rollouts(master_config: MasterConfig) -> bool:
     """Determine if async rollouts should be used based on the configuration.
 
-    Returns True if vLLM backend is used with async_engine enabled.
+    Returns True if vLLM or TRT-LLM backend is used with async_engine enabled.
     """
     generation_config = master_config.policy["generation"]
     if generation_config is None:
         return False
 
     backend = generation_config.get("backend", "")
-    if backend != "vllm":
-        return False
+    if backend == "vllm":
+        vllm_cfg = generation_config.get("vllm_cfg", {})
+        return vllm_cfg.get("async_engine", False)
 
-    vllm_cfg = generation_config.get("vllm_cfg", {})
-    return vllm_cfg.get("async_engine", False)
+    if backend == "trtllm":
+        trtllm_cfg = generation_config.get("trtllm_cfg", {})
+        return trtllm_cfg.get("async_engine", False)
+
+    return False
 
 
 def _should_use_nemo_gym(master_config: MasterConfig) -> bool:
@@ -1100,15 +1128,21 @@ def _should_use_nemo_gym(master_config: MasterConfig) -> bool:
 
     # Validate the setup for training with NeMo-Gym
     assert _should_use_async_rollouts(master_config), (
-        "❌ Error: In order to use NeMo-Gym, you must use vllm generation backend with `async_engine: true`!"
+        "❌ Error: NeMo-Gym requires either vllm with `async_engine: true` "
+        "or trtllm with `async_engine: true`!"
     )
 
     # We piggyback off of `_should_use_async_rollouts` to guarantee the existence of these configs.
     generation_config = master_config.policy["generation"]
-    should_expose_http_server = generation_config["vllm_cfg"].get("expose_http_server")
-    assert should_expose_http_server, (
-        "In order to use NeMo-Gym, you must expose the vllm server via `expose_http_server: true`!"
-    )
+    backend = generation_config.get("backend", "")
+    if backend == "vllm":
+        assert generation_config["vllm_cfg"].get("expose_http_server"), (
+            "In order to use NeMo-Gym with vllm, you must set `expose_http_server: true`!"
+        )
+    elif backend == "trtllm":
+        assert generation_config["trtllm_cfg"].get("expose_http_server"), (
+            "In order to use NeMo-Gym with trtllm, you must set `expose_http_server: true`!"
+        )
 
     return should_use_nemo_gym
 
