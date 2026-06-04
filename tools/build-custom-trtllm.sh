@@ -109,7 +109,7 @@ sed -i 's|COMMAND \${Python3_EXECUTABLE} setup_library.py develop --user|COMMAND
 #                            libnvrtc-builtins lazily instead of statically.
 echo "Building TensorRT-LLM wheel (this takes ~30-60 minutes)..."
 python3 scripts/build_wheel.py \
-    -a "100-real" \
+    -a "80-real;90-real;100-real" \
     -G Ninja \
     --clean \
     --use_ccache \
