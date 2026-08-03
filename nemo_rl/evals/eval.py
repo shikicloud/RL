@@ -717,11 +717,10 @@ def _run_nemo_gym_eval_impl(
                 tokenizer=tokenizer,
                 task_to_env={"nemo_gym": nemo_gym},
                 generation_config=generation_config,
-                log_full_result_tables=bool(
-                    (master_config.logger or {}).get(
-                        "log_nemo_gym_full_result_tables", False
-                    )
-                ),
+                # The eval loop harvests per-rollout payloads from the
+                # full_result tables below (its raw benchmark data), so they
+                # are unconditionally required here.
+                log_full_result_tables=True,
                 max_seq_len=None,
                 max_rollout_turns=None,
                 greedy=False,
