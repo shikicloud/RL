@@ -43,7 +43,7 @@ from nemo_rl.environments.nemo_gym import (
     spinup_nemo_gym_actor,
 )
 from nemo_rl.environments.vlm_environment import VLMEnvConfig
-from nemo_rl.experience.rollouts import run_async_nemo_gym_rollout
+from nemo_rl.experience.rollouts import run_nemo_gym_rollout_sync
 from nemo_rl.models.generation.interfaces import GenerationConfig, GenerationInterface
 from nemo_rl.models.generation.megatron import MegatronGeneration
 from nemo_rl.models.generation.sglang.sglang_generation import SGLangGeneration
@@ -711,12 +711,17 @@ def _run_nemo_gym_eval_impl(
                 batch = batch.repeat_interleave(num_generations_per_prompt)
 
             vllm_generation.clear_logger_metrics()
-            rollout_result = run_async_nemo_gym_rollout(
+            rollout_result = run_nemo_gym_rollout_sync(
                 policy_generation=vllm_generation,
                 input_batch=batch,
                 tokenizer=tokenizer,
                 task_to_env={"nemo_gym": nemo_gym},
                 generation_config=generation_config,
+                log_full_result_tables=bool(
+                    (master_config.logger or {}).get(
+                        "log_nemo_gym_full_result_tables", False
+                    )
+                ),
                 max_seq_len=None,
                 max_rollout_turns=None,
                 greedy=False,
