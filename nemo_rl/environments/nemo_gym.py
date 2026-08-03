@@ -603,11 +603,13 @@ def setup_nemo_gym_generation_config(generation_config: dict[str, Any]) -> None:
     backend = generation_config.get("backend")
     if backend == "vllm":
         backend_config = generation_config["vllm_cfg"]
+    elif backend == "trtllm":
+        backend_config = generation_config["trtllm_cfg"]
     elif backend == "megatron":
         backend_config = generation_config["mcore_generation_config"]
     else:
         raise ValueError(
-            "NeMo Gym HTTP rollouts require backend=vllm or backend=megatron"
+            "NeMo Gym HTTP rollouts require backend=vllm, backend=trtllm, or backend=megatron"
         )
 
     # Gym calls the rollout engine through its OpenAI-compatible HTTP server.

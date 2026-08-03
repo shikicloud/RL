@@ -47,6 +47,7 @@ from nemo_rl.experience.rollouts import run_async_nemo_gym_rollout
 from nemo_rl.models.generation.interfaces import GenerationConfig, GenerationInterface
 from nemo_rl.models.generation.megatron import MegatronGeneration
 from nemo_rl.models.generation.sglang.sglang_generation import SGLangGeneration
+from nemo_rl.models.generation.trtllm import TrtllmGeneration
 from nemo_rl.models.generation.vllm import VllmGeneration
 from nemo_rl.models.policy import PolicyConfig, TokenizerConfig
 from nemo_rl.utils.logger import Logger, LoggerConfig
@@ -155,12 +156,15 @@ def _validate_nemo_gym_generation_config(
     if backend == "vllm":
         backend_config = generation_config["vllm_cfg"]
         config_path = "generation.vllm_cfg"
+    elif backend == "trtllm":
+        backend_config = generation_config["trtllm_cfg"]
+        config_path = "generation.trtllm_cfg"
     elif backend == "megatron":
         backend_config = generation_config["mcore_generation_config"]
         config_path = "generation.mcore_generation_config"
     else:
         raise ValueError(
-            "NeMo Gym evaluation supports the vLLM and Megatron rollout backends"
+            "NeMo Gym evaluation supports the vLLM, TRT-LLM, and Megatron rollout backends"
         )
     if not backend_config["async_engine"] or not backend_config.get(
         "expose_http_server"
@@ -233,6 +237,10 @@ def setup_nemo_gym_environment(
         base_urls=base_urls,
         model_name=master_config.generation["model_name"],
         enable_router_replay=False,
+        # Mirrors the GRPO spin-up defaults: the dtype only matters when router
+        # replay is enabled, and fastokens follows the tokenizer config.
+        routed_experts_dtype="int16",
+        use_fastokens=bool((master_config.tokenizer or {}).get("use_fastokens")),
     )
 
 
@@ -328,6 +336,10 @@ def setup(
             sglang_config["model_path"] = generation_config["model_name"]
         policy_generation = SGLangGeneration(
             cluster=cluster, sglang_cfg=generation_config
+        )
+    elif backend == "trtllm":
+        policy_generation = TrtllmGeneration(
+            cluster=cluster, config=generation_config
         )
     elif backend == "megatron":
         if master_config.policy is None:
@@ -513,6 +525,9 @@ def run_env_eval(
         use_async = bool(
             generation_config.get("vllm_cfg", {}).get("async_engine", False)
         )
+    elif backend == "trtllm":
+        # TrtllmGeneration asserts async_engine=true at construction.
+        use_async = True
     elif backend == "megatron":
         use_async = bool(
             generation_config.get("mcore_generation_config", {}).get(
