@@ -205,7 +205,14 @@ def create_app(
             max_tokens=int(max_tokens),
             # Include generated stop tokens so the adapter can trim tokens and logprobs together.
             include_stop_str_in_output=True,
-            logprobs=True,
+            # logprobs=0 returns only the sampled token's logprob, which is all
+            # the RL training side consumes; simple_format then returns them as a
+            # flat list[float] instead of one dict[int, Logprob] per token. At
+            # agentic scale (long multi-turn generations x hundreds of concurrent
+            # requests) that per-token allocation is significant. Mirrors
+            # trtllm_worker_async._build_sampling_params.
+            logprobs=0,
+            logprobs_simple_format=True,
         )
 
         try:
@@ -213,6 +220,11 @@ def create_app(
                 llm.generate,
                 [{"prompt_token_ids": adj_prompt}],
                 sampling_params=sampling,
+                # tqdm defaults ON and prints a multi-line ANSI progress bar per
+                # request; at agentic scale (hundreds of concurrent requests) that
+                # floods Ray's worker-stdout forwarding and stalls the driver
+                # ("The driver may not be able to keep up with the stdout...").
+                use_tqdm=False,
             )
         except RequestError as e:
             err = str(e)

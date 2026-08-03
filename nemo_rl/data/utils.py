@@ -77,10 +77,21 @@ def load_dataloader_state(
     its existing raw-``state_dict`` shape, and the saved ``dataset_name`` is
     read out of the sibling ``config.yaml`` so every existing checkpoint is
     automatically compatible.
+
+    A missing state file is likewise treated as "start from index 0" rather
+    than an error, so a checkpoint whose dataloader state was deliberately
+    removed still resumes.
     """
-    saved_state = torch.load(
-        os.path.join(checkpoint_path, f"train_dataloader{suffix}.pt")
-    )
+    state_path = os.path.join(checkpoint_path, f"train_dataloader{suffix}.pt")
+    if not os.path.exists(state_path):
+        print(
+            f"  ⚠ {state_path} not found. "
+            f"Skipping dataloader state restore; dataset starts from index 0.",
+            flush=True,
+        )
+        return
+
+    saved_state = torch.load(state_path)
 
     config_path = os.path.join(checkpoint_path, "config.yaml")
     if os.path.exists(config_path):

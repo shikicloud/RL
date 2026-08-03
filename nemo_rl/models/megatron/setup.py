@@ -1150,6 +1150,13 @@ def _create_megatron_config(
         )
 
     dist_cfg = DistributedInitConfig()
+    # NanoV3.5 R=4 (TP4/CP16/EP32 @196k): on the first RL training step a
+    # single rank can legitimately go silent for 10+ minutes between two
+    # collectives (NCCL flight-recorder evidence, jobs 2528850/2531533 —
+    # likely first-use backward-kernel JIT/autotune), which blows the default
+    # 10-minute PG watchdog and kills all 64 ranks. Bridge's own recipes set
+    # 30-240 here.
+    dist_cfg.distributed_timeout_minutes = 45
     if "use_gloo_process_groups" in config["megatron_cfg"]:
         dist_cfg.use_gloo_process_groups = config["megatron_cfg"][
             "use_gloo_process_groups"
