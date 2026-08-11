@@ -250,6 +250,13 @@ COMMON_SRUN_ARGS+=" --mpi=pmix"
 COMMON_SRUN_ARGS+=" --container-mounts=$MOUNTS"
 COMMON_SRUN_ARGS+=" --container-image=$CONTAINER"
 COMMON_SRUN_ARGS+=" --container-workdir=$SLURM_SUBMIT_DIR"
+# Force NEMO_RL_VENV_DIR into the container when set at submit time: the image
+# bakes ENV NEMO_RL_VENV_DIR=/opt/ray_venvs, which otherwise overrides the
+# submitted environment; pyxis --container-env makes the host value win. This
+# reaches the RAYLET env, which is what the ray-task venv builder reads.
+if [ -n "${NEMO_RL_VENV_DIR:-}" ]; then
+  COMMON_SRUN_ARGS+=" --container-env=NEMO_RL_VENV_DIR"
+fi
 # Pass partition/account explicitly for overlapping srun calls.
 COMMON_SRUN_ARGS+=" -p $SLURM_JOB_PARTITION"
 COMMON_SRUN_ARGS+=" -A $SLURM_JOB_ACCOUNT"

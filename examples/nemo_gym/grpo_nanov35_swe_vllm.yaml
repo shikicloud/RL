@@ -1,7 +1,14 @@
 # =============================================================================
-# NanoV3.5 SWE agentic GRPO with TRT-LLM generation backend (Lyris/GB200).
+# NanoV3.5 SWE agentic GRPO with vLLM generation backend on RL@main (Lyris/GB200).
 #
-# Purpose: convergence-alignment run vs the vllm baseline
+# Purpose: control arm. Identical to grpo_nanov35_swe_trtllm_lyris.yaml except
+# for the generation backend, so a run of this config isolates the two variables
+# that were confounded so far: (a) generation backend, (b) repo/megatron pin.
+# The for-gen vllm baseline cleared TP4/CP16/EP32; every RL@main trtllm run
+# deadlocked in step-1 training collectives (MegatronPolicyWorker only). If this
+# config also deadlocks, the training pin is implicated and trtllm is exonerated.
+#
+# Originally: convergence-alignment run vs the vllm baseline
 # (nemo-rl-for-gen nanov35-swe-vllm-r16-bf16-baseline). Algorithm/loss/async
 # parameters mirror that baseline's effective config (ALIGN_BASELINE=1, ruit's
 # validated params); only the generation backend differs (trtllm, PR #3130).
@@ -21,7 +28,7 @@ cluster:
 
 checkpointing:
   enabled: true
-  checkpoint_dir: results/nanov35-swe-trtllm   # overridden by launch script
+  checkpoint_dir: results/nanov35-swe-vllm-rlmain   # overridden by launch script
   metric_name: "train:total_reward/mean"
   higher_is_better: true
   keep_top_k: 1000000
@@ -180,59 +187,46 @@ policy:
   generation:
     port_range_low: 11001
     port_range_high: 15000
-    backend: trtllm
+    backend: vllm
     max_new_tokens: ${policy.max_total_sequence_length}
     temperature: 1.0
     top_p: 1.0
     top_k: null
     stop_token_ids: null
     stop_strings: null
-    trtllm_cfg:
+    vllm_cfg:
       expose_http_server: true   # required for NeMo-Gym (agents hit the OpenAI server)
-      tensor_parallel_size: 4
-      max_model_len: ${policy.max_total_sequence_length}
-      precision: ${policy.precision}
       async_engine: true
+      precision: ${policy.precision}
+      kv_cache_dtype: "auto"
+      tensor_parallel_size: 4
+      pipeline_parallel_size: 1
+      expert_parallel_size: 1
       gpu_memory_utilization: 0.85
-      max_batch_size: 64
-      max_num_tokens: 32768
-      # Track async-GRPO settings (single source of truth, cannot diverge)
-      in_flight_weight_updates: ${grpo.async_grpo.in_flight_weight_updates}
-      recompute_kv_cache_after_weight_updates: ${grpo.async_grpo.recompute_kv_cache_after_weight_updates}
-      # NanoV3.5 parsers (registered in pinned TRT-LLM @ bf2ef86f)
-      tool_parser: qwen3_coder
-      reasoning_parser: nano-v3
-      default_chat_template_kwargs:
-        enable_thinking: true
-        truncate_history_thinking: false
-        # Nano sometimes omits the closing </think>; without this the parser
-        # files the whole generation under reasoning_content and the agent
-        # receives an empty message (LLMContextWindowExceedError, reward=0).
-        force_nonempty_content: true
-    trtllm_kwargs:
-      # Without chunked prefill TRT-LLM rejects any prompt longer than
-      # max_num_tokens (32768) with RequestError -> HTTP 400 -> the agent dies
-      # the moment it reads a big file. vLLM enables this by default.
-      enable_chunked_prefill: true
-      num_postprocess_workers: 0
-      stream_interval: 10
-      kv_cache_config:
-        # The bf2ef86f unified Mamba block-reuse manager can return an
-        # unallocated recurrent-state sentinel under isolated SWE concurrency
-        # (4 independent repros on HSG). Do NOT re-enable on this wheel.
-        # Disabling it also bypasses FORCE_CHUNK 256-token context slicing.
-        enable_block_reuse: false
-        free_gpu_memory_fraction: 0.85
-        dtype: auto
-        # Used only when a future TRT-LLM build safely re-enables block reuse.
-        # rc24 renamed mamba_state_cache_interval to this nested field; setting
-        # the legacy name trips a non-idempotent migration validator on
-        # re-validation ("Cannot set both ...").
-        mamba_state_config:
-          periodic_snapshot_interval: 8192
-        mamba_ssm_cache_dtype: float16
-        mamba_ssm_stochastic_rounding: true
-        mamba_ssm_philox_rounds: 5
+      max_model_len: ${policy.max_total_sequence_length}
+      enforce_eager: false
+      skip_tokenizer_init: false
+      # NanoV3.5 parsers — same combination the for-gen baseline used.
+      reasoning_parser_plugin: nemo_rl/models/generation/vllm/reasoning_parsers/nano_v3_reasoning_parser.py
+      http_server_serving_chat_kwargs:
+        enable_auto_tools: true
+        tool_parser: qwen3_coder
+        reasoning_parser: nano_v3
+        default_chat_template_kwargs:
+          enable_thinking: true
+    vllm_kwargs:
+      # NanoV3.5 hybrid-Mamba requirements from the validated baseline: fp32 SSM
+      # cache, PIECEWISE cudagraph (FULL masks ~78% of sequences).
+      attention_backend: FLASH_ATTN
+      moe_backend: triton
+      max_num_batched_tokens: 8480
+      mamba_ssm_cache_dtype: "float32"
+      mamba_cache_mode: align
+      compilation_config:
+        cudagraph_mode: PIECEWISE
+        cudagraph_capture_sizes: [1, 2, 4, 8, 16, 32, 64]
+        pass_config:
+          fuse_allreduce_rms: false
     colocated:
       enabled: false
       resources:
@@ -320,7 +314,7 @@ logger:
   monitor_gpus: true
   wandb:
     project: nemorl-mlperf-shikiw
-    name: nanov35-swe-trtllm
+    name: nanov35-swe-vllm-rlmain
   gpu_monitoring:
     collection_interval: 10
     flush_interval: 10

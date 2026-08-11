@@ -64,6 +64,22 @@ fi
 # first launch, reused afterwards; see handoff Step 3 for the wheel-cache seed).
 if [ "${USER}" != "shikiw" ]; then
   NEMO_RL_VENV_DIR="${NEMO_RL_VENV_DIR:-${MY_DIR}/ray_venvs_rc24}"
+  # Must be exported: the ray worker venv builder runs under the RAYLET's
+  # environment (started by ray.sub inside the container), not the driver's.
+  # sbatch exports the submission env; pyxis carries it into the container.
+  export NEMO_RL_VENV_DIR
+  # The OpenHands framework repo must be OWNED by the runner: the one-time
+  # setup git-clones it, and git refuses cross-user sources ("detected
+  # dubious ownership"). Make a personal copy once (242 MB) and point the
+  # recipe at it (train + val agents).
+  OPENHANDS_REPO="${OPENHANDS_REPO:-${MY_DIR}/nv-OpenHands}"
+  if [ ! -d "${OPENHANDS_REPO}/.git" ]; then
+    echo "One-time copy of the OpenHands framework repo -> ${OPENHANDS_REPO} ..."
+    rsync -a "${SHARED}/nv-OpenHands/" "${OPENHANDS_REPO}/"
+  fi
+  EXTRA_ARGS="${EXTRA_ARGS:-} \
+env.nemo_gym.swe_agents_train.responses_api_agents.swe_agents.agent_framework_repo=${OPENHANDS_REPO} \
+env.nemo_gym.swe_agents_val.responses_api_agents.swe_agents.agent_framework_repo=${OPENHANDS_REPO}"
 fi
 RAY_SUB="${REPO_ROOT}/ray.sub"
 
