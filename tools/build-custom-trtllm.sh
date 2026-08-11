@@ -141,8 +141,18 @@ git submodule update --init --recursive --depth=1
 #   - remove `setuptools<80` ceiling. Modern setuptools (>=80) is required by
 #     several of our other dependencies (e.g. transformer-engine build deps);
 #     downgrading creates an unresolvable conflict in the venv.
-assert_patch_target requirements.txt 'nvidia-modelopt[torch]~=0.37.0'
-sed -i 's|nvidia-modelopt\[torch\]~=0\.37\.0|nvidia-modelopt[torch]>=0.44.0a0|' requirements.txt
+# rc24+ removed the modelopt pin from requirements.txt entirely; the bump is
+# only needed on older refs where the ~=0.37.0 ceiling conflicts with the venv.
+# rc24 (main) pins PyNvVideoCodec~=2.1.0, which ships no cp313 wheels at all;
+# 2.2.0 adds cp313 manylinux_2_34 aarch64 (container glibc 2.39 satisfies it).
+# LLM serving never imports it, so a version bump is the minimal safe fix.
+if grep -qF -- 'PyNvVideoCodec~=2.1.0' requirements.txt; then
+    sed -i 's|PyNvVideoCodec~=2\.1\.0|PyNvVideoCodec~=2.2.0|' requirements.txt
+fi
+
+if grep -qF -- 'nvidia-modelopt[torch]~=0.37.0' requirements.txt; then
+    sed -i 's|nvidia-modelopt\[torch\]~=0\.37\.0|nvidia-modelopt[torch]>=0.44.0a0|' requirements.txt
+fi
 assert_patch_target requirements.txt 'setuptools<80'
 sed -i 's|^setuptools<80$|setuptools|' requirements.txt
 

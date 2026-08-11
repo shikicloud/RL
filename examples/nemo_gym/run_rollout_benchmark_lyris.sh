@@ -1,0 +1,166 @@
+#!/bin/bash
+# =============================================================================
+# Launch the NanoV3.5 SWE rollout benchmark (generation-only, no training)
+# on Lyris (GB200). Adapted from run_grpo_nanov35_swe_trtllm.sh.
+#
+# Geometry: R generation nodes only (default 2), TP4 per replica, 4 GPUs/node.
+# One "step" rolls out PPS=GBS/GPP prompts x GPP generations = GBS trajectories
+# through eval (examples/nemo_gym/run_grpo_rollout_benchmark.py).
+#
+# Usage:
+#   BACKEND=trtllm bash examples/nemo_gym/run_rollout_benchmark_lyris.sh
+#   BACKEND=vllm  R=2 MAX_TURNS=60 RUN_IDX=2 bash examples/nemo_gym/run_rollout_benchmark_lyris.sh
+#   DRY_RUN=1 BACKEND=trtllm bash examples/nemo_gym/run_rollout_benchmark_lyris.sh
+# =============================================================================
+set -euo pipefail
+
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+# Shared read-only assets (container/model/data) — reference in place.
+SHARED=/lustre/fsw/coreai_comparch_trtllm/shikiw
+# Your writable outputs (caches/secrets/gym venvs/wandb staging). Defaults to
+# your own account dir; override with MY_DIR=... to relocate.
+MY_DIR="${MY_DIR:-/lustre/fsw/coreai_comparch_trtllm/${USER}}"
+
+# ----- backend (required: env or first positional arg) -----------------------
+BACKEND="${BACKEND:-${1:-}}"
+if [ "${BACKEND}" != "trtllm" ] && [ "${BACKEND}" != "vllm" ]; then
+  echo "ERROR: set BACKEND=trtllm or BACKEND=vllm (env var or first arg)"; exit 1
+fi
+
+# ----- benchmark knobs (rollout-benchmark doc defaults, all overridable) ------
+R="${R:-2}"                          # generation node count (= all nodes)
+NUM_GPU=4
+GBS="${GBS:-64}"                     # trajectories per benchmark step
+GPP="${GPP:-16}"                     # generations per prompt
+PPS=$((GBS / GPP))                   # prompts per step (default 4)
+CONCURRENCY="${CONCURRENCY:-$((PPS * GPP))}"   # = GBS; NOT the training 2x
+MAX_TURNS="${MAX_TURNS:-60}"
+AGENT_TIMEOUT="${AGENT_TIMEOUT:-1200}"
+VAL_PATH="${VAL_PATH:-${SHARED}/data/swe_val_20inst_rollout_bench.jsonl}"
+RUN_IDX="${RUN_IDX:-1}"
+GEN_TP=4
+WALLTIME="${WALLTIME:-04:00:00}"
+
+# ----- rollout-only geometry --------------------------------------------------
+NUM_GEN_NODES="${R}"
+TOTAL_NODES="${NUM_GEN_NODES}"       # no train nodes
+# Same two-layer topology alignment as the training launcher (sbatch --segment
+# + cluster.segment_size); with gen-only nodes the segment is just R.
+SBATCH_SEGMENT="${TOTAL_NODES}"
+
+# ----- paths / artifacts ------------------------------------------------------
+# Same image for both backends (control-arm parity, as in the training launcher).
+CONTAINER="${CONTAINER:-${SHARED}/images/nemo-rl-genonly-v2-trtllm-rc24-vllm025-aarch64-20260810.sqsh}"
+CONFIG_PATH="${CONFIG_PATH:-${REPO_ROOT}/examples/nemo_gym/grpo_nanov35_swe_${BACKEND}.yaml}"
+NEMO_GYM_VENV_DIR="${NEMO_GYM_VENV_DIR:-${MY_DIR}/gym_venvs_v2bake}"
+RAY_SUB="${REPO_ROOT}/ray.sub"
+
+# ----- naming / dirs ----------------------------------------------------------
+EXP_NAME="${EXP_NAME:-rollout-bench-${BACKEND}-run${RUN_IDX}}"
+WANDB_PROJ="${WANDB_PROJ:-nemorl-mlperf-${USER}}"
+WANDB_NAME="${WANDB_NAME:-nanov35-rollout-bench-${BACKEND}-mt${MAX_TURNS}-run${RUN_IDX}}"
+WANDB_GROUP="nanov35-rollout-bench"
+BASE_LOG_DIR="${REPO_ROOT}/logs/${EXP_NAME}"
+RUN_LOG_DIR="${BASE_LOG_DIR}"
+NEMO_LOG_DIR="${BASE_LOG_DIR}"
+mkdir -p "${RUN_LOG_DIR}"
+chmod 700 "${BASE_LOG_DIR}" || true
+
+# ----- caches (persistent, per-experiment) ------------------------------------
+PERSISTENT_CACHE="${MY_DIR}/nemo_rl_cache/${EXP_NAME}"
+mkdir -p "${PERSISTENT_CACHE}/uv" "${PERSISTENT_CACHE}/inductor" "${PERSISTENT_CACHE}/triton" "${PERSISTENT_CACHE}/gym_uv"
+HF_HOME="${MY_DIR}/hf_home"
+WANDB_STAGE="${MY_DIR}/wandb_stage/${EXP_NAME}"
+mkdir -p "${HF_HOME}" "${WANDB_STAGE}"
+
+# ----- secrets ------------------------------------------------------------------
+if [ -f "${MY_DIR}/.secrets/nemo-rl.env" ]; then
+  set -a; source "${MY_DIR}/.secrets/nemo-rl.env"; set +a
+fi
+
+# ----- mounts -------------------------------------------------------------------
+export MOUNTS="${MOUNTS:-/lustre:/lustre,/dev/fuse:/dev/fuse}"
+export CONTAINER
+export GPUS_PER_NODE="${NUM_GPU}"
+
+export COMMAND="cd ${REPO_ROOT} && \
+trap 'touch ${BASE_LOG_DIR}/\${SLURM_JOB_ID}-logs/ENDED 2>/dev/null || true' EXIT && \
+date && \
+OMP_NUM_THREADS=16 \
+TRTLLM_USE_MAMBA_FI_SSD=${TRTLLM_USE_MAMBA_FI_SSD:-0} \
+NRL_FORCE_REBUILD_VENVS=${NRL_FORCE_REBUILD_VENVS:-false} \
+${NEMO_RL_VENV_DIR:+NEMO_RL_VENV_DIR=${NEMO_RL_VENV_DIR}} \
+RAY_DEDUP_LOGS=1 \
+TORCHINDUCTOR_CACHE_DIR=${PERSISTENT_CACHE}/inductor \
+TRITON_CACHE_DIR=${PERSISTENT_CACHE}/triton \
+UV_CACHE_DIR=${PERSISTENT_CACHE}/uv \
+RAY_ENABLE_UV_RUN_RUNTIME_ENV=0 \
+UV_HTTP_TIMEOUT=10 \
+UV_LOCK_TIMEOUT=1200 \
+NEMO_GYM_VENV_DIR=${NEMO_GYM_VENV_DIR} \
+TRTLLM_WHEEL_CACHE_DIR=${MY_DIR}/trtllm_wheel_cache \
+HF_HOME=${HF_HOME} \
+HF_TOKEN=\${HF_TOKEN:-} \
+WANDB_API_KEY=\${WANDB_API_KEY:-} \
+WANDB_DIR=${WANDB_STAGE} \
+WANDB_CACHE_DIR=${WANDB_STAGE}/cache \
+WANDB_DATA_DIR=${WANDB_STAGE}/data \
+uv run ./examples/nemo_gym/run_grpo_rollout_benchmark.py \
+  --config ${CONFIG_PATH} \
+  grpo.num_prompts_per_step=${PPS} \
+  grpo.num_generations_per_prompt=${GPP} \
+  data.train.data_path=${VAL_PATH} \
+  data.validation.data_path=${VAL_PATH} \
+  env.nemo_gym.swe_agents_train.responses_api_agents.swe_agents.agent_max_turns=${MAX_TURNS} \
+  env.nemo_gym.swe_agents_train.responses_api_agents.swe_agents.swebench_agent_timeout=${AGENT_TIMEOUT} \
+  env.nemo_gym.swe_agents_train.responses_api_agents.swe_agents.concurrency=${CONCURRENCY} \
+  env.nemo_gym.swe_agents_val.responses_api_agents.swe_agents.agent_max_turns=${MAX_TURNS} \
+  env.nemo_gym.swe_agents_val.responses_api_agents.swe_agents.swebench_agent_timeout=${AGENT_TIMEOUT} \
+  env.nemo_gym.swe_agents_val.responses_api_agents.swe_agents.concurrency=${CONCURRENCY} \
+  policy.generation.${BACKEND}_cfg.tensor_parallel_size=${GEN_TP} \
+  policy.generation.colocated.enabled=False \
+  policy.generation.colocated.resources.num_nodes=${NUM_GEN_NODES} \
+  policy.generation.colocated.resources.gpus_per_node=${NUM_GPU} \
+  cluster.num_nodes=${TOTAL_NODES} \
+  cluster.gpus_per_node=${NUM_GPU} \
+  cluster.segment_size=${SBATCH_SEGMENT} \
+  checkpointing.enabled=False \
+  logger.log_dir=${NEMO_LOG_DIR} \
+  logger.wandb_enabled=True \
+  logger.wandb.name=${WANDB_NAME} \
+  logger.wandb.project=${WANDB_PROJ} \
+  ++logger.wandb.group=${WANDB_GROUP} \
+  ${EXTRA_ARGS:-}"
+
+SBATCH_ARGS=(
+  --segment="${SBATCH_SEGMENT}"
+  --nodes="${TOTAL_NODES}"
+  --account="coreai_comparch_trtllm"
+  --job-name="${WANDB_NAME}"
+  --partition="gb200"
+  --time="${WALLTIME}"
+  --exclusive
+  --mem=0
+  --dependency=singleton
+  --output="${RUN_LOG_DIR}/slurm-%j.out"
+)
+
+echo "Config:    ${CONFIG_PATH}"
+echo "Container: ${CONTAINER}"
+echo "Geometry:  ${TOTAL_NODES} gen-only nodes (${BACKEND}-TP${GEN_TP}); PPS=${PPS} GPP=${GPP} GBS=${GBS} concurrency=${CONCURRENCY}"
+echo "Agents:    max_turns=${MAX_TURNS} timeout=${AGENT_TIMEOUT}s data=${VAL_PATH}"
+echo "WandB:     ${WANDB_PROJ}/${WANDB_NAME}"
+[ -f "${CONTAINER}" ] || { echo "ERROR: container missing: ${CONTAINER}"; exit 1; }
+[ -f "${VAL_PATH}" ] || { echo "ERROR: benchmark data missing: ${VAL_PATH}"; exit 1; }
+[ -d "${NEMO_GYM_VENV_DIR}" ] || { echo "ERROR: gym venvs missing: ${NEMO_GYM_VENV_DIR}"; exit 1; }
+
+if [ "${DRY_RUN:-0}" = "1" ]; then
+  echo "[DRY_RUN] sbatch ${SBATCH_ARGS[*]} ${RAY_SUB}"
+  exit 0
+fi
+
+SBATCH_OUTPUT="$(sbatch "${SBATCH_ARGS[@]}" "${RAY_SUB}")"
+echo "${SBATCH_OUTPUT}"
+JOB_ID="$(echo "${SBATCH_OUTPUT}" | grep -oE '[0-9]+' | tail -1)"
+echo "Job ID: ${JOB_ID}"
+chmod 700 "${RUN_LOG_DIR}" 2>/dev/null || true

@@ -37,6 +37,14 @@ from nemo_rl.utils.config import (
     register_omegaconf_resolvers,
 )
 
+def _grpo_field(grpo_config: GRPOMasterConfig, key: str) -> Any:
+    """Read a grpo-section field whether it is a mapping or a pydantic model."""
+    section = grpo_config.grpo
+    if isinstance(section, dict):
+        return section[key]
+    return getattr(section, key)
+
+
 ROLLOUT_BENCHMARK_METRIC = "mean_reward"
 ROLLOUT_BENCHMARK_K_VALUE = 1
 
@@ -106,7 +114,7 @@ def convert_grpo_to_eval_config(
         raise ValueError("Rollout benchmark requires policy.generation")
     generation_config = cast(dict[str, Any], deepcopy(source_generation_config))
     generation_config["model_name"] = grpo_config.policy["model_name"]
-    generation_config["num_prompts_per_step"] = grpo_config.grpo["num_prompts_per_step"]
+    generation_config["num_prompts_per_step"] = _grpo_field(grpo_config, "num_prompts_per_step")
     if generation_config["backend"] == "vllm":
         vllm_config = generation_config["vllm_cfg"]
         vllm_config.setdefault("enable_vllm_metrics_logger", True)
@@ -154,8 +162,8 @@ def convert_grpo_to_eval_config(
     converted_config: dict[str, Any] = {
         "eval": {
             "metric": ROLLOUT_BENCHMARK_METRIC,
-            "num_tests_per_prompt": grpo_config.grpo["num_generations_per_prompt"],
-            "seed": grpo_config.grpo["seed"],
+            "num_tests_per_prompt": _grpo_field(grpo_config, "num_generations_per_prompt"),
+            "seed": _grpo_field(grpo_config, "seed"),
             "k_value": ROLLOUT_BENCHMARK_K_VALUE,
             "save_path": None,
         },

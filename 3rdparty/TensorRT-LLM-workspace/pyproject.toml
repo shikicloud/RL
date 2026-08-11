@@ -22,7 +22,7 @@
 
 [project]
 name = "tensorrt-llm"
-version = "1.3.0rc21"
+version = "1.3.0rc24"
 requires-python = ">=3.13"
 dependencies = [
   "tensorrt~=10.16.1",
@@ -39,7 +39,7 @@ dependencies = [
   "nvidia-ml-py>=13",
   "cuda-python>=13",
   "flash-attn-4==4.0.0b11",
-  "flashinfer-python==0.6.12",
+  "flashinfer-python==0.6.16",
   "torchao>=0.14.1,<0.16.0",
   "apache-tvm-ffi==0.1.6",
   "torch-c-dlpack-ext==0.1.3",
@@ -120,4 +120,4 @@ backend-path = ["."]
 # be reused across ref and uv-version changes. When bumping `ref`, also re-sync
 # [project].dependencies against the new requirements.txt.
 url = "https://github.com/NVIDIA/TensorRT-LLM.git"
-ref = "bf2ef86f9a2652132b11773d4041e292c553c142"   # pragma: allowlist secret
+ref = "0fa708be4e2ff4dcce7d8665b1aaefd0cd979d0d"   # pragma: allowlist secret

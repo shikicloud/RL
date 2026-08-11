@@ -114,6 +114,19 @@ def create_app(
 
     @app.post("/v1/chat/completions")
     async def chat_completions(request: Request):
+        try:
+            return await _chat_completions_inner(request)
+        except Exception:
+            import traceback
+
+            print(
+                "[trtllm_http_server] unhandled exception in /v1/chat/completions:\n"
+                + traceback.format_exc(),
+                flush=True,
+            )
+            raise
+
+    async def _chat_completions_inner(request: Request):
         body: dict = await request.json()
         messages: list[dict] = body.get("messages", [])
         tools: list[dict] | None = body.get("tools")
@@ -139,9 +152,11 @@ def create_app(
         )
 
         try:
-            conversation, mm_coroutine, _ = parse_chat_messages_coroutines(
-                messages, model_config
-            )
+            # rc21 returns (conversation, mm_coroutine, placeholder_counts);
+            # newer TRT-LLM (rc24+) appends a 4th element (mm item order).
+            # Index instead of unpacking to tolerate both shapes.
+            parsed = parse_chat_messages_coroutines(messages, model_config)
+            conversation, mm_coroutine = parsed[0], parsed[1]
             mm_data, mm_embeddings = await mm_coroutine
         except ValueError as e:
             return JSONResponse(status_code=400, content={"error": str(e)})

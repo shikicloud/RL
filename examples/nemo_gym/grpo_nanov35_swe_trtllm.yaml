@@ -195,7 +195,7 @@ policy:
       async_engine: true
       gpu_memory_utilization: 0.85
       max_batch_size: 64
-      max_num_tokens: 8480
+      max_num_tokens: 32768
       # Track async-GRPO settings (single source of truth, cannot diverge)
       in_flight_weight_updates: ${grpo.async_grpo.in_flight_weight_updates}
       recompute_kv_cache_after_weight_updates: ${grpo.async_grpo.recompute_kv_cache_after_weight_updates}
@@ -211,11 +211,28 @@ policy:
         force_nonempty_content: true
     trtllm_kwargs:
       # Without chunked prefill TRT-LLM rejects any prompt longer than
-      # max_num_tokens (8480) with RequestError -> HTTP 400 -> the agent dies
+      # max_num_tokens (32768) with RequestError -> HTTP 400 -> the agent dies
       # the moment it reads a big file. vLLM enables this by default.
       enable_chunked_prefill: true
+      num_postprocess_workers: 0
+      stream_interval: 10
       kv_cache_config:
-        mamba_ssm_cache_dtype: float32
+        # The bf2ef86f unified Mamba block-reuse manager can return an
+        # unallocated recurrent-state sentinel under isolated SWE concurrency
+        # (4 independent repros on HSG). Do NOT re-enable on this wheel.
+        # Disabling it also bypasses FORCE_CHUNK 256-token context slicing.
+        enable_block_reuse: false
+        free_gpu_memory_fraction: 0.85
+        dtype: auto
+        # Used only when a future TRT-LLM build safely re-enables block reuse.
+        # rc24 renamed mamba_state_cache_interval to this nested field; setting
+        # the legacy name trips a non-idempotent migration validator on
+        # re-validation ("Cannot set both ...").
+        mamba_state_config:
+          periodic_snapshot_interval: 8192
+        mamba_ssm_cache_dtype: float16
+        mamba_ssm_stochastic_rounding: true
+        mamba_ssm_philox_rounds: 5
     colocated:
       enabled: false
       resources:
