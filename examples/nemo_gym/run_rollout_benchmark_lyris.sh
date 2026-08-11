@@ -37,7 +37,11 @@ CONCURRENCY="${CONCURRENCY:-$((PPS * GPP))}"   # = GBS; NOT the training 2x
 MAX_TURNS="${MAX_TURNS:-60}"
 AGENT_TIMEOUT="${AGENT_TIMEOUT:-1200}"
 VAL_PATH="${VAL_PATH:-${SHARED}/data/swe_val_20inst_rollout_bench.jsonl}"
-RUN_IDX="${RUN_IDX:-1}"
+# Defaults to a timestamp so every launch gets a fresh log dir / job name /
+# W&B run — no singleton queue collisions, no re-locking or appending into a
+# previous run's directory. Pass RUN_IDX=<n> explicitly for numbered series
+# (e.g. 5-run mean±std sets).
+RUN_IDX="${RUN_IDX:-$(date +%m%d-%H%M%S)}"
 GEN_TP=4
 WALLTIME="${WALLTIME:-04:00:00}"
 

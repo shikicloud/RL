@@ -217,14 +217,17 @@ policy:
       num_postprocess_workers: 0
       stream_interval: 10
       kv_cache_config:
-        # The bf2ef86f unified Mamba block-reuse manager can return an
-        # unallocated recurrent-state sentinel under isolated SWE concurrency
-        # (4 independent repros on HSG). Do NOT re-enable on this wheel.
-        # Disabling it also bypasses FORCE_CHUNK 256-token context slicing.
-        enable_block_reuse: false
+        # ON by default since rc24: nemotron_h resolves to KV cache manager V2,
+        # whose Mamba snapshot reuse ran clean here (multiple 320-trajectory
+        # runs, zero recurrent-state sentinels, ~7-10% faster steps, scores at
+        # parity). Also matches vLLM, whose prefix caching defaults on.
+        # ⚠️ rc21 wheels (bf2ef86f): keep this FALSE — the v1-era Mamba
+        # block-reuse manager returns unallocated recurrent-state sentinels
+        # under SWE concurrency (4 independent repros on HSG).
+        enable_block_reuse: true
         free_gpu_memory_fraction: 0.85
         dtype: auto
-        # Used only when a future TRT-LLM build safely re-enables block reuse.
+        # Mamba recurrent-state snapshot interval used by block reuse.
         # rc24 renamed mamba_state_cache_interval to this nested field; setting
         # the legacy name trips a non-idempotent migration validator on
         # re-validation ("Cannot set both ...").
