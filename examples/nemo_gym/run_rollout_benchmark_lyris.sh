@@ -52,7 +52,19 @@ SBATCH_SEGMENT="${TOTAL_NODES}"
 # Same image for both backends (control-arm parity, as in the training launcher).
 CONTAINER="${CONTAINER:-${SHARED}/images/nemo-rl-genonly-v2-trtllm-rc24-vllm025-aarch64-20260810.sqsh}"
 CONFIG_PATH="${CONFIG_PATH:-${REPO_ROOT}/examples/nemo_gym/grpo_nanov35_swe_${BACKEND}.yaml}"
-NEMO_GYM_VENV_DIR="${NEMO_GYM_VENV_DIR:-${MY_DIR}/gym_venvs_v2bake}"
+# Gym venvs: your own build (either naming from the handoff guide works).
+if [ -z "${NEMO_GYM_VENV_DIR:-}" ]; then
+  for _d in "${MY_DIR}/gym_venvs_v2bake" "${MY_DIR}/gym_venvs_rlmain"; do
+    [ -d "${_d}" ] && NEMO_GYM_VENV_DIR="${_d}" && break
+  done
+  NEMO_GYM_VENV_DIR="${NEMO_GYM_VENV_DIR:-${MY_DIR}/gym_venvs_v2bake}"
+fi
+# Ray worker venvs: the image-baked ones embed shikiw's repo path and only
+# work for shikiw — everyone else gets a per-user Lustre dir (built once on
+# first launch, reused afterwards; see handoff Step 3 for the wheel-cache seed).
+if [ "${USER}" != "shikiw" ]; then
+  NEMO_RL_VENV_DIR="${NEMO_RL_VENV_DIR:-${MY_DIR}/ray_venvs_rc24}"
+fi
 RAY_SUB="${REPO_ROOT}/ray.sub"
 
 # ----- naming / dirs ----------------------------------------------------------
@@ -150,6 +162,8 @@ echo "Container: ${CONTAINER}"
 echo "Geometry:  ${TOTAL_NODES} gen-only nodes (${BACKEND}-TP${GEN_TP}); PPS=${PPS} GPP=${GPP} GBS=${GBS} concurrency=${CONCURRENCY}"
 echo "Agents:    max_turns=${MAX_TURNS} timeout=${AGENT_TIMEOUT}s data=${VAL_PATH}"
 echo "WandB:     ${WANDB_PROJ}/${WANDB_NAME}"
+echo "Gym venvs: ${NEMO_GYM_VENV_DIR}"
+echo "Ray venvs: ${NEMO_RL_VENV_DIR:-<image-baked (only valid for shikiw)>}"
 [ -f "${CONTAINER}" ] || { echo "ERROR: container missing: ${CONTAINER}"; exit 1; }
 [ -f "${VAL_PATH}" ] || { echo "ERROR: benchmark data missing: ${VAL_PATH}"; exit 1; }
 [ -d "${NEMO_GYM_VENV_DIR}" ] || { echo "ERROR: gym venvs missing: ${NEMO_GYM_VENV_DIR}"; exit 1; }
