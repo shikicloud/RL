@@ -58,10 +58,10 @@ CONTAINER="${CONTAINER:-${SHARED}/images/nemo-rl-genonly-v2-trtllm-rc24-vllm025-
 CONFIG_PATH="${CONFIG_PATH:-${REPO_ROOT}/examples/nemo_gym/grpo_nanov35_swe_${BACKEND}.yaml}"
 # Gym venvs: your own build (either naming from the handoff guide works).
 if [ -z "${NEMO_GYM_VENV_DIR:-}" ]; then
-  for _d in "${MY_DIR}/gym_venvs_v2bake" "${MY_DIR}/gym_venvs_rlmain"; do
+  for _d in "${MY_DIR}/gym_venvs_rollout" "${MY_DIR}/gym_venvs_rlmain"; do
     [ -d "${_d}" ] && NEMO_GYM_VENV_DIR="${_d}" && break
   done
-  NEMO_GYM_VENV_DIR="${NEMO_GYM_VENV_DIR:-${MY_DIR}/gym_venvs_v2bake}"
+  NEMO_GYM_VENV_DIR="${NEMO_GYM_VENV_DIR:-${MY_DIR}/gym_venvs_rollout}"
 fi
 # Ray worker venvs: the image-baked ones embed shikiw's repo path and only
 # work for shikiw — everyone else gets a per-user Lustre dir (built once on
