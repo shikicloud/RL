@@ -93,10 +93,12 @@ WANDB_PROJ="${WANDB_PROJ:-nemorl-mlperf-${USER}}"
 WANDB_NAME="${WANDB_NAME:-nanov35-rollout-bench-${BACKEND}-mt${MAX_TURNS}-run${RUN_IDX}}"
 WANDB_GROUP="nanov35-rollout-bench"
 BASE_LOG_DIR="${REPO_ROOT}/logs/${EXP_NAME}"
+# Exported so ray.sub places <jobid>-logs in the per-experiment dir.
+export BASE_LOG_DIR
 RUN_LOG_DIR="${BASE_LOG_DIR}"
 NEMO_LOG_DIR="${BASE_LOG_DIR}"
 mkdir -p "${RUN_LOG_DIR}"
-chmod 700 "${BASE_LOG_DIR}" || true
+chmod 750 "${BASE_LOG_DIR}" || true
 
 # ----- caches (persistent, per-experiment) ------------------------------------
 PERSISTENT_CACHE="${MY_DIR}/nemo_rl_cache/${EXP_NAME}"
@@ -158,7 +160,9 @@ export CONTAINER
 export GPUS_PER_NODE="${NUM_GPU}"
 
 export COMMAND="cd ${REPO_ROOT} && \
-trap 'touch ${BASE_LOG_DIR}/\${SLURM_JOB_ID}-logs/ENDED 2>/dev/null || true' EXIT && \
+# SLURM_JOB_ID is absent inside the head container; driver_command.sh lives
+# in LOG_DIR, so derive the ENDED path from \$0.
+trap 'touch \$(dirname \$0)/ENDED 2>/dev/null || true' EXIT && \
 date && \
 OMP_NUM_THREADS=16 \
 TRTLLM_USE_MAMBA_FI_SSD=${TRTLLM_USE_MAMBA_FI_SSD:-0} \
@@ -244,4 +248,4 @@ SBATCH_OUTPUT="$(sbatch "${SBATCH_ARGS[@]}" "${RAY_SUB}")"
 echo "${SBATCH_OUTPUT}"
 JOB_ID="$(echo "${SBATCH_OUTPUT}" | grep -oE '[0-9]+' | tail -1)"
 echo "Job ID: ${JOB_ID}"
-chmod 700 "${RUN_LOG_DIR}" 2>/dev/null || true
+chmod 750 "${RUN_LOG_DIR}" 2>/dev/null || true

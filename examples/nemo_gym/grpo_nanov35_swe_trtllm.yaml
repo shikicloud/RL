@@ -221,6 +221,9 @@ policy:
       print_iter_log: true
       enable_iter_perf_stats: true
       enable_iter_req_stats: true
+      # MNNVL AllReduce (explicit request; wheel below honours it under Ray
+      # on single-node TP). On a stock rc24 wheel this falls back to NCCL.
+      allreduce_strategy: MNNVL
       kv_cache_config:
         # ON by default since rc24: nemotron_h resolves to KV cache manager V2,
         # whose Mamba snapshot reuse ran clean here (multiple 320-trajectory
