@@ -216,6 +216,11 @@ policy:
       enable_chunked_prefill: true
       num_postprocess_workers: 0
       stream_interval: 10
+      # Per-iteration engine stats/log. print_iter_log emits at logger.info
+      # (needs TLLM_LOG_LEVEL=INFO); iter_req_stats requires iter_perf_stats.
+      print_iter_log: true
+      enable_iter_perf_stats: true
+      enable_iter_req_stats: true
       kv_cache_config:
         # The bf2ef86f unified Mamba block-reuse manager can return an
         # unallocated recurrent-state sentinel under isolated SWE concurrency

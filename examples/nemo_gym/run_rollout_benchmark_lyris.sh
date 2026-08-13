@@ -106,6 +106,10 @@ if [ -f "${MY_DIR}/.secrets/nemo-rl.env" ]; then
   set -a; source "${MY_DIR}/.secrets/nemo-rl.env"; set +a
 fi
 
+# ----- TRT-LLM logging ------------------------------------------------------------
+# print_iter_log lines emit at logger.info; TRT-LLM's default level is "error".
+export TLLM_LOG_LEVEL="${TLLM_LOG_LEVEL:-INFO}"
+
 # ----- nsys profiling -------------------------------------------------------------
 # nsys-wraps the TRT-LLM GPU workers via NeMo-RL's Ray nsight injection; capture
 # covers executor iterations TLLM_PROFILE_START_STOP (cudaProfilerApi). Reports
