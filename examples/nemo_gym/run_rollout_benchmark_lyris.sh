@@ -106,6 +106,44 @@ if [ -f "${MY_DIR}/.secrets/nemo-rl.env" ]; then
   set -a; source "${MY_DIR}/.secrets/nemo-rl.env"; set +a
 fi
 
+# ----- nsys profiling -------------------------------------------------------------
+# nsys-wraps the TRT-LLM GPU workers via NeMo-RL's Ray nsight injection; capture
+# covers executor iterations TLLM_PROFILE_START_STOP (cudaProfilerApi). Reports
+# land in ${BASE_LOG_DIR}/<jobid>-logs/ray/**/logs/nsight/. NSYS=0 for score runs.
+NSYS="${NSYS:-1}"
+if [ "${NSYS}" != 0 ] && [ "${NSYS}" != 1 ]; then
+  echo "ERROR: NSYS must be 0 or 1"; exit 1
+fi
+if [ "${NSYS}" = 1 ]; then
+  TLLM_PROFILE_START_STOP="${TLLM_PROFILE_START_STOP:-1000-1050}"
+  if ! [[ "${TLLM_PROFILE_START_STOP}" =~ ^([0-9]+)-([0-9]+)$ ]]; then
+    echo "ERROR: TLLM_PROFILE_START_STOP must be one start-stop executor range (e.g. 1000-1050)"; exit 1
+  fi
+  PROFILE_START_ITER="${BASH_REMATCH[1]}"
+  PROFILE_STOP_ITER="${BASH_REMATCH[2]}"
+  if (( 10#${PROFILE_START_ITER} >= 10#${PROFILE_STOP_ITER} )); then
+    echo "ERROR: TLLM_PROFILE_START_STOP must be a non-empty half-open range"; exit 1
+  fi
+  export NRL_NSYS_WORKER_PATTERNS="trtllm_async_generation_worker"
+  # Required alongside WORKER_PATTERNS; report label only — capture is gated
+  # by TLLM_PROFILE_START_STOP.
+  export NRL_NSYS_PROFILE_STEP_RANGE="${PROFILE_START_ITER}:${PROFILE_STOP_ITER}"
+  if [ -z "${NRL_NSYS_EXTRA_OPTIONS:-}" ]; then
+    # End the capture range without terminating the worker.
+    NRL_NSYS_EXTRA_OPTIONS='{"capture-range-end":"repeat:1:async"}'
+  fi
+  export NRL_NSYS_EXTRA_OPTIONS
+  export TLLM_PROFILE_START_STOP
+  # Reports appear on node-local /tmp only at worker exit: the log-sync sidecar
+  # (off unless RAY_LOG_SYNC_FREQUENCY is set) copies them out during the
+  # teardown grace, before the job ends.
+  export RAY_LOG_SYNC_FREQUENCY="${RAY_LOG_SYNC_FREQUENCY:-60}"
+  NSYS_TEARDOWN_GRACE="${NSYS_TEARDOWN_GRACE:-120}"
+else
+  NSYS_TEARDOWN_GRACE=0
+  unset NRL_NSYS_WORKER_PATTERNS NRL_NSYS_PROFILE_STEP_RANGE NRL_NSYS_EXTRA_OPTIONS TLLM_PROFILE_START_STOP
+fi
+
 # ----- mounts -------------------------------------------------------------------
 export MOUNTS="${MOUNTS:-/lustre:/lustre,/dev/fuse:/dev/fuse}"
 export CONTAINER
@@ -158,7 +196,7 @@ uv run ./examples/nemo_gym/run_grpo_rollout_benchmark.py \
   logger.wandb.name=${WANDB_NAME} \
   logger.wandb.project=${WANDB_PROJ} \
   ++logger.wandb.group=${WANDB_GROUP} \
-  ${EXTRA_ARGS:-}"
+  ${EXTRA_ARGS:-}; NRL_BENCH_RC=\$?; sleep ${NSYS_TEARDOWN_GRACE}; exit \${NRL_BENCH_RC}"
 
 SBATCH_ARGS=(
   --segment="${SBATCH_SEGMENT}"
@@ -180,6 +218,11 @@ echo "Agents:    max_turns=${MAX_TURNS} timeout=${AGENT_TIMEOUT}s data=${VAL_PAT
 echo "WandB:     ${WANDB_PROJ}/${WANDB_NAME}"
 echo "Gym venvs: ${NEMO_GYM_VENV_DIR}"
 echo "Ray venvs: ${NEMO_RL_VENV_DIR:-<image-baked (only valid for shikiw)>}"
+if [ "${NSYS}" = 1 ]; then
+  echo "Nsys:      ON — executor iters ${TLLM_PROFILE_START_STOP}, $((R * GEN_TP)) worker reports -> ${BASE_LOG_DIR}/<jobid>-logs/ray/**/logs/nsight/"
+else
+  echo "Nsys:      off"
+fi
 [ -f "${CONTAINER}" ] || { echo "ERROR: container missing: ${CONTAINER}"; exit 1; }
 [ -f "${VAL_PATH}" ] || { echo "ERROR: benchmark data missing: ${VAL_PATH}"; exit 1; }
 [ -d "${NEMO_GYM_VENV_DIR}" ] || { echo "ERROR: gym venvs missing: ${NEMO_GYM_VENV_DIR}"; exit 1; }
