@@ -119,5 +119,10 @@ backend-path = ["."]
 # image is scoped by base image and architecture so valid compiler objects can
 # be reused across ref and uv-version changes. When bumping `ref`, also re-sync
 # [project].dependencies against the new requirements.txt.
-url = "https://github.com/NVIDIA/TensorRT-LLM.git"
-ref = "0fa708be4e2ff4dcce7d8665b1aaefd0cd979d0d"   # pragma: allowlist secret
+# MNNVL wheel: branch mnnvl-rc24 (34a2fa9f) = previous pin 0fa708be
+# (requirements-identical) + shuyix aacc6c5a (MNNVL AllReduce under Ray,
+# ProcessGroup workspace comm) + shuyix 63c819e6 (meta-init-safe workspace
+# barrier; removes the RL NCCL AllReduce pin). Revert to NVIDIA url +
+# 0fa708be for the stock wheel.
+url = "https://github.com/dominicshanshan/TensorRT-LLM.git"
+ref = "34a2fa9f75f201b9da84c959d58e6dc04e805366"   # pragma: allowlist secret

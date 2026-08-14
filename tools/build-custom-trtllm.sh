@@ -18,6 +18,16 @@ set -euxo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(realpath "$SCRIPT_DIR/..")"
 
+# The runtime image ships MPI only as HPC-X (off CMake's default paths);
+# export the ompi4 prefix the shipped wheel links (libmpi.so.40 RUNPATH).
+if ! pkg-config --exists mpi-c 2>/dev/null && [ -d /opt/hpcx/ompi4 ]; then
+    export MPI_HOME=/opt/hpcx/ompi4
+    export PATH="/opt/hpcx/ompi4/bin:${PATH}"
+    export LD_LIBRARY_PATH="/opt/hpcx/ompi4/lib:${LD_LIBRARY_PATH:-}"
+    export PKG_CONFIG_PATH="/opt/hpcx/ompi4/lib/pkgconfig:${PKG_CONFIG_PATH:-}"
+    export CMAKE_PREFIX_PATH="/opt/hpcx/ompi4:${CMAKE_PREFIX_PATH:-}"
+fi
+
 # Assert a `sed -i` patch target exists before patching. `sed` exits 0 even when
 # the pattern doesn't match, so if TRT-LLM upstream changes these files our
 # patches would silently no-op and the build would fail later in an obscure way.
