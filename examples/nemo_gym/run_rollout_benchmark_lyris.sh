@@ -42,7 +42,7 @@ VAL_PATH="${VAL_PATH:-${SHARED}/data/swe_val_20inst_rollout_bench.jsonl}"
 # previous run's directory. Pass RUN_IDX=<n> explicitly for numbered series
 # (e.g. 5-run mean±std sets).
 RUN_IDX="${RUN_IDX:-$(date +%m%d-%H%M%S)}"
-GEN_TP=4
+GEN_TP="${GEN_TP:-4}"
 WALLTIME="${WALLTIME:-04:00:00}"
 
 # ----- rollout-only geometry --------------------------------------------------
