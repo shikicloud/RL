@@ -119,10 +119,13 @@ backend-path = ["."]
 # image is scoped by base image and architecture so valid compiler objects can
 # be reused across ref and uv-version changes. When bumping `ref`, also re-sync
 # [project].dependencies against the new requirements.txt.
-# MNNVL wheel: branch mnnvl-rc24 (34a2fa9f) = previous pin 0fa708be
-# (requirements-identical) + shuyix aacc6c5a (MNNVL AllReduce under Ray,
-# ProcessGroup workspace comm) + shuyix 63c819e6 (meta-init-safe workspace
-# barrier; removes the RL NCCL AllReduce pin). Revert to NVIDIA url +
-# 0fa708be for the stock wheel.
-url = "https://github.com/dominicshanshan/TensorRT-LLM.git"
-ref = "34a2fa9f75f201b9da84c959d58e6dc04e805366"   # pragma: allowlist secret
+# nano-bcg wheel: internal branch user/shanshan/nano-bcg (123a256d) =
+# mnnvl-rc24 34a2fa9f (requirements-identical) + upstream BCG squash 4ff5d102
+# (PR #16609, breakable prefill CUDA graphs) + the NemotronH enablers:
+# 60a719bd (mamba2 boundary custom op), e9b4ad79 (mixer tolerates capture-
+# bucket token padding), 88bf5470 (eager_on_graph bridge so BCG can run
+# hybrid-mamba models). Internal GitLab access required to build; revert to
+# https://github.com/dominicshanshan/TensorRT-LLM.git + 34a2fa9f for the
+# public MNNVL-only wheel (no breakable support).
+url = "ssh://git@gitlab-master.nvidia.com:12051/ftp/tekit.git"
+ref = "123a256d643a04f99f85450ebda53aac7bd92ba4"   # pragma: allowlist secret
