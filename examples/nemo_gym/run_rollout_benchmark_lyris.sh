@@ -54,7 +54,11 @@ SBATCH_SEGMENT="${TOTAL_NODES}"
 
 # ----- paths / artifacts ------------------------------------------------------
 # Same image for both backends (control-arm parity, as in the training launcher).
-CONTAINER="${CONTAINER:-${SHARED}/images/nemo-rl-genonly-v2-trtllm-rc24-vllm025-aarch64-20260810.sqsh}"
+# nanobcg image: actor venv carries the tekit 123a256d wheel (BCG + Mamba2
+# piecewise + full MNNVL stack) pre-baked -- no gitlab creds / no compile.
+# REQUIRED with current recipe defaults: the old 20260810 image's wheel does
+# not know prefill_cuda_graph_backend and fails TorchLlmArgs validation.
+CONTAINER="${CONTAINER:-${SHARED}/images/nemo-rl-genonly-v2-trtllm-rc24-nanobcg-vllm025-aarch64-20260825.sqsh}"
 CONFIG_PATH="${CONFIG_PATH:-${REPO_ROOT}/examples/nemo_gym/grpo_nanov35_swe_${BACKEND}.yaml}"
 # Gym venvs: your own build (either naming from the handoff guide works).
 if [ -z "${NEMO_GYM_VENV_DIR:-}" ]; then
