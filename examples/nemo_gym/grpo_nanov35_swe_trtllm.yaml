@@ -190,6 +190,11 @@ policy:
     trtllm_cfg:
       expose_http_server: true   # required for NeMo-Gym (agents hit the OpenAI server)
       tensor_parallel_size: 4
+      # MoE layers: split TP4 as moe_tp=1 x moe_ep=4 (whole experts distributed
+      # across the 4 ranks instead of tensor-sliced; moe_tp*moe_ep must == tp).
+      # Validated +12.6% tok/s on the 20-inst benchmark vs TP-sliced (job
+      # 2752298 vs 2681648); numerics at parity.
+      moe_expert_parallel_size: 4
       max_model_len: ${policy.max_total_sequence_length}
       precision: ${policy.precision}
       async_engine: true
@@ -221,9 +226,20 @@ policy:
       print_iter_log: true
       enable_iter_perf_stats: true
       enable_iter_req_stats: true
-      # MNNVL AllReduce (explicit request; wheel below honours it under Ray
-      # on single-node TP). On a stock rc24 wheel this falls back to NCCL.
-      allreduce_strategy: MNNVL
+      # Two validated configs on the nano-bcg wheel (full 20-inst runs, all
+      # 5 steps, golden scores):
+      #   1) NCCL + breakable prefill CUDA graphs (default below): 2143-2149
+      #      tok/s clean-protocol; BCG fully offsets the NCCL-vs-MNNVL gap.
+      #   2) MNNVL without BCG: set allreduce_strategy: MNNVL and comment out
+      #      prefill_cuda_graph_backend (2134-2148 tok/s clean-protocol).
+      # DO NOT combine MNNVL + breakable: nondeterministic device wedge
+      # (lamport spin-wait in replayed segments; see
+      # bcg_mnnvl_tep4_wedge_investigation.txt) — fix pending.
+      allreduce_strategy: NCCL
+      # Breakable prefill CUDA graphs (upstream PR #16609 + NemotronH mamba2
+      # bridge in the pinned wheel). Captures prefill per token bucket from
+      # eager execution — no torch.compile involved.
+      prefill_cuda_graph_backend: breakable
       kv_cache_config:
         # ON by default since rc24: nemotron_h resolves to KV cache manager V2,
         # whose Mamba snapshot reuse ran clean here (multiple 320-trajectory
