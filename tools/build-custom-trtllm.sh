@@ -183,7 +183,9 @@ if grep -qE '^torch>=' requirements.txt; then
     sed -i -E "s|^torch>=.*$|torch==${TORCH_INSTALLED}|" requirements.txt
 fi
 sed -i -E '/^triton>=/d;/^nvidia-nccl-cu13>=/d' requirements.txt
-python3 -m pip install -q "conan==2.14.0" "nanobind>=2.9.0" pybind11 pybind11-stubgen \
+# build (+pyproject_hooks) and wheel drive the final `python -m build --no-isolation`;
+# without deps they import-fail at packaging time.
+python3 -m pip install -q build wheel "conan==2.14.0" "nanobind>=2.9.0" pybind11 pybind11-stubgen \
     "nvidia-cutlass-dsl[cu13]==4.8.0.dev0"
 export PIP_NO_DEPS=1
 echo "Build env torch stack pinned: torch==${TORCH_INSTALLED} (PIP_NO_DEPS=1 for build_wheel.py's pip calls)"
