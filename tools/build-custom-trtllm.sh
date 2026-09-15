@@ -166,6 +166,28 @@ fi
 assert_patch_target requirements.txt 'setuptools<80'
 sed -i 's|^setuptools<80$|setuptools|' requirements.txt
 
+# --- Keep the build environment's torch stack ---------------------------------
+# build_wheel.py sees sys.prefix != sys.base_prefix, uses the current venv as is,
+# and runs `pip install -r requirements-dev.txt` into it. The runtime image and
+# the RL lock pin torch 2.11.0+cu130 / triton 3.6.0 / nvidia-nccl-cu13 2.30.4,
+# while rc27's requirements ask for torch>=2.12.0a0 (a triton-pin coupling, not
+# an API need), triton>=3.7 and nccl>=2.29.7. Left alone, pip upgrades torch in
+# the build env and the wheel is compiled against 2.13 headers: at import the
+# 2.11 runtime lacks torch::Library::_def(..., std::vector<torch::headeronly::Tag>, ...)
+# (undefined symbol in libth_common.so). So: pin torch to the installed version,
+# drop the ranges the installed torch cannot satisfy, pre-install the build tools
+# build_wheel.py wants (with their deps), and run every pip call of the build
+# with --no-deps so nothing can pull torch / triton / nccl along.
+TORCH_INSTALLED="$(python3 -c 'import torch; print(torch.__version__)')"
+if grep -qE '^torch>=' requirements.txt; then
+    sed -i -E "s|^torch>=.*$|torch==${TORCH_INSTALLED}|" requirements.txt
+fi
+sed -i -E '/^triton>=/d;/^nvidia-nccl-cu13>=/d' requirements.txt
+python3 -m pip install -q "conan==2.14.0" "nanobind>=2.9.0" pybind11 pybind11-stubgen \
+    "nvidia-cutlass-dsl[cu13]==4.8.0.dev0"
+export PIP_NO_DEPS=1
+echo "Build env torch stack pinned: torch==${TORCH_INSTALLED} (PIP_NO_DEPS=1 for build_wheel.py's pip calls)"
+
 # cutlass_kernels/CMakeLists.txt invokes `setup_library.py develop --user`,
 # which (a) requires a setup.py shim and (b) the `--user` flag is invalid
 # inside a venv. Rewrite the COMMAND to copy setup_library.py to setup.py
