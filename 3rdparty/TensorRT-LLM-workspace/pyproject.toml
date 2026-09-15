@@ -9,20 +9,26 @@
 # Declared as no-build-isolation-package in the root pyproject.toml so the
 # build runs in the main venv context and has access to torch / CUDA headers.
 #
-# Sourced from requirements.txt on github.com/shuyixiong/TensorRT-LLM@nemorl.
-# Intentional omissions from requirements.txt:
+# Sourced from requirements.txt of the pinned TensorRT-LLM ref (1.3.0rc27 main
+# lineage, see [tool.trtllm]). Intentional omissions from requirements.txt:
 #   - datasets==3.1.0        → conflicts with nemorl base datasets>=4.0.0
 #   - setuptools<80          → conflicts with nemorl override setuptools>=80.10.2
 #   - llguidance==0.7.29     → conflicts with nemorl override llguidance>=1.3.0,<1.4.0
-#   - triton==3.6.0          → nemorl base manages triton via pytorch-cu130 index
+#   - triton>=3.7.0,<=3.8.0  → nemorl base manages triton via pytorch-cu130 index
+#   - torch>=2.12.0a0        → nemorl overrides torch==2.11.0 (the floor upstream is
+#                              triton-pin coupling, not an API requirement)
 #   - evaluate               → pulls in conflicting datasets==3.1.0 transitively
 #   - build / ninja / meson / patchelf  → build-time only, not runtime deps
 #   - cuda-core              → included in cuda-python>=13
 #   - graphviz / polygraphy / mcp  → optional dev/test tools
+#   - PyNvVideoCodec         → video decode only; no cp313 aarch64 wheel in the pinned range
+# Entries that nemorl overrides anyway (kept at the upstream value for the record):
+#   flashinfer-python (override 0.6.8.post1), xgrammar (>=0.2.1), apache-tvm-ffi (>=0.1.9),
+#   nvidia-cudnn-frontend (==1.23.0), nvidia-nccl-cu13 (==2.30.4).
 
 [project]
 name = "tensorrt-llm"
-version = "1.3.0rc24"
+version = "1.3.0rc27"
 requires-python = ">=3.13"
 dependencies = [
   "tensorrt~=10.16.1",
@@ -31,49 +37,58 @@ dependencies = [
   "torch>=2.11.0",
   "torchvision",
   "nvidia-modelopt>=0.37.0",
-  # Ceiling raised from upstream's <=2.29.7 (which tracks what NGC rel-26-04 ships,
-  # not a tested incompatibility) so it matches the nvidia-nccl-cu13==2.30.4 override.
-  "nvidia-nccl-cu13>=2.28.9,<=2.30.4",
+  "nvidia-nccl-cu13>=2.29.7,<=2.30.7",
+  "nccl4py>=0.3.1,<0.4",
   "nvidia-cuda-nvrtc",
-  "nvidia-cutlass-dsl[cu13]==4.5.0",
+  "nvidia-cutlass-dsl[cu13]==4.8.0.dev0",
+  # 4.8.0.dev0 is a pre-release and pulls pre-release libs packages (the cu12 one
+  # unconditionally); uv only admits pre-releases that are requested explicitly,
+  # so pin them here rather than enabling pre-releases project-wide.
+  "nvidia-cutlass-dsl-libs-base==4.8.0.dev0",
+  "nvidia-cutlass-dsl-libs-cu12==4.8.0.dev0",
+  "nvidia-cutlass-dsl-libs-cu13==4.8.0.dev0",
+  "nvidia-matmul-heuristics==0.1.0.27",
+  "quack-kernels==0.5.0",
   "nvidia-ml-py>=13",
   "cuda-python>=13",
-  "flash-attn-4==4.0.0b11",
-  "flashinfer-python==0.6.16",
+  "flash-attn-4==4.0.0b19",
+  "flashinfer-python==0.6.18",
   "torchao>=0.14.1,<0.16.0",
-  "apache-tvm-ffi==0.1.6",
+  "apache-tvm-ffi==0.1.13.post2",
   "torch-c-dlpack-ext==0.1.3",
   "xdsl>=0.59.0",
   "cuda-tile>=1.0.1",
   "nvidia-cuda-tileiras>=13.1,<13.2",
+  "nvidia-cudnn-frontend>=1.27.0,<1.28",
   "transformers==5.5.4",
   "accelerate>=1.7.0",
+  "safetensors>=0.8.0",
   "sentencepiece>=0.1.99",
   "mistral-common>=1.10.0",
   "tiktoken",
-  "diffusers>=0.37.1",
-  "peft>=0.18.1",
+  "diffusers>=0.40.0,<0.41",
+  "peft>=0.18.1,<0.19.0",
   "optimum",
   "ftfy",
-  "xgrammar>=0.1.32",
+  "lazy_loader~=0.5",
+  "xgrammar==0.1.32",
   "lark",
   "partial_json_parser",
-  "onnx>=1.21.0",
-  "onnx_graphsurgeon>=0.5.2",
-  "fastapi>=0.120.1",
-  "starlette>=0.49.1",
+  "jinja2",
+  "fastapi>=0.136.3",
+  "starlette>=1.3.1",
   "uvicorn",
+  "uvloop>=0.19.0",
   "pydantic>=2.9.1",
   "pydantic-settings[yaml]",
   "python-multipart",
   "prometheus_client",
-  "prometheus-fastapi-instrumentator>=8.0.2",
+  "prometheus-fastapi-instrumentator>=8.1.0",
   "openai-harmony==0.0.4",
   "etcd-sdk-python==0.0.7",
-  "smg-grpc-proto>=0.4.2",
+  "protobuf>=5.27.2",
   "cache-dit>=1.3.5",
   "pillow",
-  "opencv-python-headless",
   "soundfile",
   "librosa",
   "h5py==3.12.1",
@@ -83,6 +98,7 @@ dependencies = [
   "colored",
   "psutil",
   "omegaconf",
+  "msgspec",
   "pyzmq",
   "einops",
   "aenum",
@@ -90,8 +106,9 @@ dependencies = [
   "llguidance>=1.3.0,<1.4.0",
   "backoff",
   "jsonschema",
-  "click>=8.3.1",
-  "click_option_group",
+  "packaging>=24.2",
+  "click>=8.4.2",
+  "click_option_group>=0.5.3",
   "ordered-set",
   "msgpack",
   "blake3",
@@ -119,13 +136,14 @@ backend-path = ["."]
 # image is scoped by base image and architecture so valid compiler objects can
 # be reused across ref and uv-version changes. When bumping `ref`, also re-sync
 # [project].dependencies against the new requirements.txt.
-# nano-bcg wheel: internal branch user/shanshan/nano-bcg (123a256d) =
-# mnnvl-rc24 34a2fa9f (requirements-identical) + upstream BCG squash 4ff5d102
-# (PR #16609, breakable prefill CUDA graphs) + the NemotronH enablers:
-# 60a719bd (mamba2 boundary custom op), e9b4ad79 (mixer tolerates capture-
-# bucket token padding), 88bf5470 (eager_on_graph bridge so BCG can run
-# hybrid-mamba models). Internal GitLab access required to build; revert to
-# https://github.com/dominicshanshan/TensorRT-LLM.git + 34a2fa9f for the
-# public MNNVL-only wheel (no breakable support).
-url = "ssh://git@gitlab-master.nvidia.com:12051/ftp/tekit.git"
-ref = "123a256d643a04f99f85450ebda53aac7bd92ba4"   # pragma: allowlist secret
+#
+# Variant M (2026-09-15): public NVIDIA/TensorRT-LLM main 0beff32139 (1.3.0rc27)
+# + PR #18231 (MNNVL AllReduce under the Ray orchestrator, incl. the RL fix
+# that drops the AsyncLLM NCCL pin; merged over #16635's checkpoint/restore)
+# + 3cc567a48b/b77e89f224 (MNNVL workspace prescale before breakable CUDA
+# graph capture) + tekit cb96642106 (register the RPC result before the send)
+# + tekit f880530e07 (TLLM_HANG_DETECTOR_TIMEOUT). Branch
+# user/shanshan/ultra_disagg_main on github.com/dominicshanshan/TensorRT-LLM;
+# built from the local checkout because compute nodes clone from Lustre.
+url = "/lustre/fsw/coreai_comparch_trtllm/dominicw/nano35_swe_benchmark/TensorRT-LLM"
+ref = "c2d91749e821e64e638b9d167c36f7562a1ad13a"   # pragma: allowlist secret

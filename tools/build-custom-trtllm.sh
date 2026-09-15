@@ -201,6 +201,13 @@ echo "Building TensorRT-LLM wheel (arch=${ARCH}, jobs=${JOBS})..."
 show_ccache_status "before TRT-LLM build"
 ccache --zero-stats
 
+# Modules that link torch (e.g. the transfer-agent binding when NIXL is on) are
+# imported by build_wheel.py to generate stubs but carry no rpath to torch's
+# libs; build_wheel.py copies the ambient environment for that step, so export
+# torch's lib directory here.
+TORCH_LIB_DIR="$(python3 -c 'import os, torch; print(os.path.join(os.path.dirname(torch.__file__), "lib"))')"
+export LD_LIBRARY_PATH="${TORCH_LIB_DIR}:${LD_LIBRARY_PATH:-}"
+
 # Keep full output for failure diagnostics, but stream only 5% Ninja milestones.
 TRTLLM_BUILD_LOG=$(mktemp /tmp/trtllm-build.XXXXXX.log)
 set +x
@@ -212,8 +219,22 @@ TRTLLM_BUILD_CMD=(
     --use_ccache
     --nvrtc_dynamic_linking
     --job_count "$JOBS"
-    -D "ENABLE_UCX=OFF"
 )
+# PD disaggregation's C++ cache transceiver (UCX wrapper + C++ NIXL transfer
+# agent) needs a NIXL install with headers plus a cmake-findable UCX and libzmq
+# at build time. The runtime image ships UCX (HPC-X) but neither NIXL headers
+# nor libzmq, so the default stays OFF: the Python transceiver then uses the
+# pure-Python NIXL agent from the pip `nixl` package. Point NIXL_ROOT_DIR at a
+# NIXL install (include/nixl.h) to opt in to the C++ agent.
+if [[ -n "${NIXL_ROOT_DIR:-}" ]]; then
+    if [[ ! -f "${NIXL_ROOT_DIR}/include/nixl.h" ]]; then
+        echo "[ERROR] NIXL_ROOT_DIR=${NIXL_ROOT_DIR} has no include/nixl.h" >&2
+        exit 1
+    fi
+    TRTLLM_BUILD_CMD+=(-D "ENABLE_UCX=ON" --nixl_root "${NIXL_ROOT_DIR}")
+else
+    TRTLLM_BUILD_CMD+=(-D "ENABLE_UCX=OFF")
+fi
 set +e
 NINJA_STATUS='NINJA_PROGRESS:%f:%t:%p:' \
     PYTHONUNBUFFERED=1 \
