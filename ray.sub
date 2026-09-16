@@ -723,7 +723,7 @@ fi
 # Clear MPI/PMIx/SLURM env vars inherited from the srun launcher so TRT-LLM's
 # MPI_Init (in the ray daemon child process below) starts clean.
 # NOTE: keep this after topology_probe.sh, which reads SLURM_TOPOLOGY_ADDR/SLURM_PROCID.
-for v in \$(env | awk -F= '/^(PMI|PMIX|MPI|OMPI|SLURM)_/{print \$1}'); do
+for v in \$(env | awk -F= '/^(PMI|PMIX|MPI|SLURM)_/ || (/^OMPI_/ && !/^OMPI_MCA_/) {print \$1}'); do
     unset "\$v"
 done
 
@@ -925,7 +925,7 @@ source $LOG_DIR/topology_probe.sh
 # Clear MPI/PMIx/SLURM env vars inherited from the srun launcher so TRT-LLM's
 # MPI_Init (in the ray daemon child process below) starts clean.
 # NOTE: keep this after topology_probe.sh, which reads SLURM_TOPOLOGY_ADDR/SLURM_PROCID.
-for v in \$(env | awk -F= '/^(PMI|PMIX|MPI|OMPI|SLURM)_/{print \$1}'); do
+for v in \$(env | awk -F= '/^(PMI|PMIX|MPI|SLURM)_/ || (/^OMPI_/ && !/^OMPI_MCA_/) {print \$1}'); do
     unset "\$v"
 done
 
