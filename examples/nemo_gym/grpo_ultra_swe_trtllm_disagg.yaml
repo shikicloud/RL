@@ -273,6 +273,11 @@ policy:
         kv_transfer_timeout_ms: 600000        # 60 s default cancels in bulk under step-start bursts
         kv_cache_bounce_size_mb: 0            # per-block path; 384 is the E9 arm
         ctx_trtllm_kwargs:
+          # Explicit TEP8 for the context engine (same values as the base trtllm_cfg;
+          # stated here so each role's parallelism is visible): TP8 x (moe_tp 1, moe_ep 8).
+          tensor_parallel_size: 8
+          moe_tensor_parallel_size: 1
+          moe_expert_parallel_size: 8
           gpu_memory_utilization: 0.80
           max_batch_size: 16
           trtllm_kwargs:
@@ -284,6 +289,10 @@ policy:
             return_perf_metrics: true
             perf_metrics_max_requests: 20000
         gen_trtllm_kwargs:
+          # Explicit TEP8 for the generation engine: TP8 x (moe_tp 1, moe_ep 8).
+          tensor_parallel_size: 8
+          moe_tensor_parallel_size: 1
+          moe_expert_parallel_size: 8
           gpu_memory_utilization: 0.85
           max_batch_size: 64
           trtllm_kwargs:
