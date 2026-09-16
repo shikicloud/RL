@@ -562,10 +562,6 @@ def create_app(
                     "index": 0,
                     "message": msg_dict,
                     "finish_reason": finish_reason,
-                    # Generated token ids. ChatCompletionResponseChoice needs
-                    # the matching field upstream (CompletionResponseChoice
-                    # already has it) or the disagg server rejects this.
-                    "token_ids": gen_token_ids,
                 }
             ],
             # Declared on ChatCompletionResponse precisely so a generation
@@ -577,6 +573,12 @@ def create_app(
                 "total_tokens": len(adj_prompt) + len(gen_token_ids),
             },
         }
+        if disagg_params is None:
+            # Generated token ids at the choice level (aggregated serving only).
+            # TRT-LLM main's ChatCompletionResponseChoice has no such field and the
+            # disagg frontend re-validates with extra="forbid", so under
+            # disaggregation the ids ride logprobs.content[].token as token_id:N.
+            response["choices"][0]["token_ids"] = gen_token_ids
 
         if logprobs_requested and gen_logprobs:
             # `token` carries the id rather than the decoded text when asked.
