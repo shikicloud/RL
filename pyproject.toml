@@ -437,10 +437,14 @@ constraint-dependencies = [
   "opencv-python-headless>=5.0.0",            # CVE floor: patches CVE-2025-9951, CVE-2025-1594, CVE-2024-31582 (bundled FFmpeg 5.1.6 in 4.x)
 ]
 
-# Workaround for https://github.com/NVIDIA/cutlass/issues/3259: libs-base
-# and libs-cu13 wheels overlap and race on shared paths. libs-cu13 is a
-# functional superset at 4.5.2, so drop libs-base to make installs deterministic.
-exclude-dependencies = ["nvidia-cutlass-dsl-libs-base"]
+# nvidia-cutlass-dsl-libs-base used to be excluded (github.com/NVIDIA/cutlass/issues/3259:
+# libs-base and libs-cu13 overlapped on shared paths at 4.5.2, where libs-cu13 was a
+# functional superset). At 4.8.0.dev0 -- pinned by TensorRT-LLM 1.3.0rc27 -- the DSL
+# Python packages (cutlass.cute, cutlass.base_dsl, cutlass.torch, ...) ship ONLY in
+# libs-base (+ libs-core); libs-cu13 carries just the MLIR native libs. Excluding it
+# leaves `import cutlass.cute` broken, which silently disables flashinfer's fused SSD
+# kernel and makes TRT-LLM's mamba2 mixer fail to import (S1a job 3067799).
+exclude-dependencies = []
 
 conflicts = [
   [
