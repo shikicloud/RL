@@ -143,8 +143,11 @@ backend-path = ["."]
 # that drops the AsyncLLM NCCL pin; merged over #16635's checkpoint/restore)
 # + 3cc567a48b/b77e89f224 (MNNVL workspace prescale before breakable CUDA
 # graph capture) + tekit cb96642106 (register the RPC result before the send)
-# + tekit f880530e07 (TLLM_HANG_DETECTOR_TIMEOUT). Branch
+# + tekit f880530e07 (TLLM_HANG_DETECTOR_TIMEOUT)
+# + public PR #18300 (645efd145b, picked 2026-09-16: MoE MNNVL/all-to-all
+# workspaces without MPI under Ray; needed by attention-DP engines, inert for
+# TEP8). Branch
 # user/shanshan/ultra_disagg_main on github.com/dominicshanshan/TensorRT-LLM;
 # built from the local checkout because compute nodes clone from Lustre.
 url = "/lustre/fsw/coreai_comparch_trtllm/dominicw/nano35_swe_benchmark/TensorRT-LLM"
-ref = "a6d00622768b1075fe8fab0bfd451c807f204851"   # pragma: allowlist secret
+ref = "a6243b935467cb6b7c3626a143eec4ad9c3bdac7"   # pragma: allowlist secret
