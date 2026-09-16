@@ -3,6 +3,13 @@
 # replica; launch with R=8 GEN_TP=16 (build/launch_S3_ultra_disagg_dep16_smoke.sh). Derived
 # from grpo_ultra_swe_trtllm_disagg.yaml; deltas = the base trtllm_cfg parallelism and the two
 # role blocks. Exercises PR #18300 (MoE MNNVL/all-to-all workspaces without MPI under Ray).
+# ATTEMPT 1 (job 3073288, 2026-09-16) OOMed in fused_moe during the KV-estimation forward:
+# under attention DP each rank's experts see up to max_num_tokens x 16 gathered tokens, so the
+# MoE chunk cap (moe_config.max_num_tokens 32768) sized a 9.64 GiB workspace against ~5.6 GiB
+# free; and the Mamba state slots are unsharded under attention DP (829 MB/slot vs 104 MB under
+# TEP8), so the gen engine's max_batch_size 64 alone reserved 53 GB. ATTEMPT 2 deltas: MoE chunk
+# cap 4096 (both roles) and gen max_batch_size 16 (+ CUDA graph sizes <= 16). Weights are 133 GiB
+# per rank either way (routed experts /16, dense + shared experts replicated).
 # VARIANT (2026-09-15): TEP8 + MNNVL + BCG + per-conversation reuse (end-offset 0)
 # + PD DISAGGREGATION (1 ctx TP8 + 1 gen TP8 per replica). Derived from
 # grpo_ultra_swe_trtllm_tep8_mnnvl_bcg_perconv3_end0.yaml (E0) by adding the
@@ -301,14 +308,16 @@ policy:
           moe_tensor_parallel_size: 1
           moe_expert_parallel_size: 16
           gpu_memory_utilization: 0.85
-          max_batch_size: 64
+          # Per-rank batch under attention DP; each slot pins an unsharded Mamba state (829 MB),
+          # 64 slots = 53 GB fixed KV-pool cost (attempt 1). 16 x 16 ranks = 256 concurrent decodes.
+          max_batch_size: 16
           trtllm_kwargs:
             enable_attention_dp: true                    # DEP: attention DP across the 16 ranks
             prefill_cuda_graph_backend: disabled         # gen runs no prefill
             disable_overlap_scheduler: false             # overlap scheduler ON (default; decode win)
             cuda_graph_config:
               enable_padding: true
-              batch_sizes: [1, 2, 4, 8, 16, 24, 32, 40, 48, 56, 64]
+              batch_sizes: [1, 2, 4, 8, 16]
             scheduler_config:
               capacity_scheduler_policy: GUARANTEED_NO_EVICT
             stream_interval: 10
@@ -326,7 +335,7 @@ policy:
       # fused-MoE call (inputs above it are split). Run spec: 32768, 4x the
       # 8192 scheduler budget.
       moe_config:
-        max_num_tokens: 32768
+        max_num_tokens: 4096     # DEP16: bounds the per-chunk MoE workspace (attempt 1 OOM at 32768)
       num_postprocess_workers: 0
       stream_interval: 10
       # Per-iteration observability (rc24 LlmArgs, all default false):
