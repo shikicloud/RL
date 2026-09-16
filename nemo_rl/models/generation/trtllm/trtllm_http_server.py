@@ -45,6 +45,20 @@ from nemo_rl.models.generation.openai_server_utils import (
 logger = logging.getLogger(__name__)
 
 
+
+async def _read_json_body(request: "Request") -> dict:
+    """Parse a JSON or X-TRTLLM-Msgpack (msgspec) request body."""
+    raw = await request.body()
+    if not raw:
+        return {}
+    if request.headers.get("x-trtllm-msgpack") == "1":
+        import msgspec
+
+        return msgspec.msgpack.Decoder().decode(raw)
+    import json
+
+    return json.loads(raw)
+
 def _tokenizer_backend_name(tokenizer: Any) -> str:
     """Return the concrete backend that performs encode/decode operations."""
     backend = getattr(tokenizer, "_tokenizer", None)
@@ -267,7 +281,10 @@ def create_app(
             raise
 
     async def _chat_completions_inner(request: Request):
-        body: dict = await request.json()
+        # TRT-LLM's disaggregated frontend (serve/openai_client.py) relays the ctx/gen legs as msgspec
+        # msgpack flagged with X-TRTLLM-Msgpack: 1 (Content-Type stays application/json); its own
+        # server decodes via _MsgspecRequest. Mirror that here, else the body fails to parse as UTF-8.
+        body: dict = await _read_json_body(request)
         messages: list[dict] = body.get("messages", [])
         tools: list[dict] | None = body.get("tools")
         logprobs_requested = body.get("logprobs", False)
