@@ -147,4 +147,4 @@ backend-path = ["."]
 # user/shanshan/ultra_disagg_main on github.com/dominicshanshan/TensorRT-LLM;
 # built from the local checkout because compute nodes clone from Lustre.
 url = "/lustre/fsw/coreai_comparch_trtllm/dominicw/nano35_swe_benchmark/TensorRT-LLM"
-ref = "c50045a2e7a3b5deda823fb52ca3f8bdd23f86bb"   # pragma: allowlist secret
+ref = "a6d00622768b1075fe8fab0bfd451c807f204851"   # pragma: allowlist secret
