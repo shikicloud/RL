@@ -23,7 +23,7 @@
 #   - graphviz / polygraphy / mcp  → optional dev/test tools
 #   - PyNvVideoCodec         → video decode only; no cp313 aarch64 wheel in the pinned range
 # Entries that nemorl overrides anyway (kept at the upstream value for the record):
-#   flashinfer-python (override 0.6.8.post1), xgrammar (>=0.2.1), apache-tvm-ffi (>=0.1.9),
+#   flashinfer-python (override 0.6.8.post1), xgrammar (>=0.2.1), apache-tvm-ffi (==0.1.13.post2),
 #   nvidia-cudnn-frontend (==1.23.0), nvidia-nccl-cu13 (==2.30.4).
 
 [project]
