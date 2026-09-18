@@ -252,6 +252,7 @@ TRTLLM_BUILD_CMD=(
     --use_ccache
     --nvrtc_dynamic_linking
     --job_count "$JOBS"
+    --yes                 # never prompt (build_wheel.py asks before using a venv torch inside an NGC PyTorch container)
 )
 # PD disaggregation's C++ cache transceiver (UCX wrapper + C++ NIXL transfer
 # agent) needs a NIXL install with headers plus a cmake-findable UCX and libzmq
