@@ -18,9 +18,18 @@ set -euxo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(realpath "$SCRIPT_DIR/..")"
 
-# The runtime image ships MPI only as HPC-X (off CMake's default paths);
-# export the ompi4 prefix the shipped wheel links (libmpi.so.40 RUNPATH).
-if ! pkg-config --exists mpi-c 2>/dev/null && [ -d /opt/hpcx/ompi4 ]; then
+# MPI selection. Images derived from the NGC PyTorch containers (TRT-LLM's CI
+# devel image) expose ONE OpenMPI as /usr/local/mpi (-> HPC-X ompi5) and put its
+# mpicc on PATH, which is also what the venv's mpi4py links; the wheel must link
+# the same libmpi, so prefer it whenever it exists. The older cuda-dl-base image
+# ships MPI only as HPC-X ompi4 off CMake's default paths (second branch).
+if [ -x /usr/local/mpi/bin/mpicc ]; then
+    export MPI_HOME="${MPI_HOME:-/usr/local/mpi}"
+    export PATH="${MPI_HOME}/bin:${PATH}"
+    export LD_LIBRARY_PATH="${MPI_HOME}/lib:${LD_LIBRARY_PATH:-}"
+    export PKG_CONFIG_PATH="${MPI_HOME}/lib/pkgconfig:${PKG_CONFIG_PATH:-}"
+    export CMAKE_PREFIX_PATH="${MPI_HOME}:${CMAKE_PREFIX_PATH:-}"
+elif ! pkg-config --exists mpi-c 2>/dev/null && [ -d /opt/hpcx/ompi4 ]; then
     export MPI_HOME=/opt/hpcx/ompi4
     export PATH="/opt/hpcx/ompi4/bin:${PATH}"
     export LD_LIBRARY_PATH="/opt/hpcx/ompi4/lib:${LD_LIBRARY_PATH:-}"
